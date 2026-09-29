@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Offerdesk } from '@offerdesk/core';
@@ -81,5 +84,29 @@ describe('MCP server', () => {
 
     const dash = await call('dashboard');
     expect(dash.content[0]?.text).toMatch(/^1 tracked, 1 submitted/);
+  });
+
+  it('runs and exports table views by name', async () => {
+    desk.addApplication({ company: 'Acme', role: 'Intern', status: 'applied' });
+    desk.addApplication({ company: 'Beta', role: 'Analyst' });
+
+    const views = await call('list_views');
+    expect(views.content[0]?.text).toMatch(/Waiting to hear \(built in\) \[id waiting\]/);
+
+    const run = await call('run_view', { view: 'waiting to hear' });
+    expect(run.content[0]?.text).toMatch(/^Waiting to hear: 1 row\.\n\nCompany \| Role/);
+    expect(run.content[0]?.text).toContain('Acme | Intern');
+
+    const unknown = await call('run_view', { view: 'nope' });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.content[0]?.text).toContain('"Everything"');
+
+    const path = join(mkdtempSync(join(tmpdir(), 'offerdesk-')), 'waiting.csv');
+    const saved = await call('export_view', { view: 'waiting', path });
+    expect(saved.content[0]?.text).toMatch(/^Saved "Waiting to hear" \(1 row\)/);
+    expect(readFileSync(path, 'utf8')).toContain('Acme,Intern');
+
+    const relative = await call('export_view', { view: 'waiting', path: 'out.csv' });
+    expect(relative.isError).toBe(true);
   });
 });

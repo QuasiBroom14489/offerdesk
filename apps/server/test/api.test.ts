@@ -134,4 +134,87 @@ describe('REST API', () => {
     });
     expect(off.json().flags).toEqual([]);
   });
+
+  describe('views and exports', () => {
+    beforeEach(() => {
+      desk.addApplication({ company: 'Acme', role: 'Data Intern', status: 'applied' });
+      desk.addApplication({ company: 'Beta', role: 'Analyst', deadline: '2026-12-01' });
+    });
+
+    const spec = { columns: ['company', 'status', 'deadline'], sort: [{ column: 'company' }] };
+
+    it('runs presets and ad-hoc specs', async () => {
+      const preset = await app.inject({ method: 'GET', url: '/api/report?view=waiting' });
+      expect(preset.json().view.name).toBe('Waiting to hear');
+      expect(preset.json().rows).toHaveLength(1);
+
+      const adhoc = await app.inject({ method: 'POST', url: '/api/report', payload: { spec } });
+      expect(adhoc.json().view).toBeNull();
+      expect(adhoc.json().rows.map((r: { cells: unknown[] }) => r.cells)).toEqual([
+        ['Acme', 'applied', null],
+        ['Beta', 'saved', '2026-12-01'],
+      ]);
+
+      const bad = await app.inject({
+        method: 'POST',
+        url: '/api/report',
+        payload: { spec: { columns: ['company', 'salary'] } },
+      });
+      expect(bad.statusCode).toBe(400);
+      expect(bad.json().issues[0].path).toEqual(['spec', 'columns', 1]);
+    });
+
+    it('saves, updates and deletes views; presets are read-only', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/api/views',
+        payload: { name: 'Mine', spec },
+      });
+      expect(created.statusCode).toBe(201);
+      const { id } = created.json();
+
+      const dup = await app.inject({
+        method: 'POST',
+        url: '/api/views',
+        payload: { name: 'MINE', spec },
+      });
+      expect(dup.statusCode).toBe(409);
+
+      const renamed = await app.inject({
+        method: 'PATCH',
+        url: `/api/views/${id}`,
+        payload: { name: 'Ours' },
+      });
+      expect(renamed.json().name).toBe('Ours');
+
+      const list = await app.inject({ method: 'GET', url: '/api/views' });
+      expect(list.json().map((v: { name: string }) => v.name)).toContain('Ours');
+
+      expect((await app.inject({ method: 'DELETE', url: `/api/views/${id}` })).statusCode).toBe(
+        204,
+      );
+      expect(
+        (await app.inject({ method: 'DELETE', url: '/api/views/everything' })).statusCode,
+      ).toBe(409);
+    });
+
+    it('downloads CSV and .xlsx named after the view', async () => {
+      const csv = await app.inject({ method: 'GET', url: '/api/export.csv?view=waiting' });
+      expect(csv.headers['content-type']).toBe('text/csv; charset=utf-8');
+      expect(csv.headers['content-disposition']).toMatch(
+        /^attachment; filename="offerdesk-waiting-to-hear-\d{4}-\d{2}-\d{2}\.csv"$/,
+      );
+      expect(csv.body).toContain('Acme,Data Intern');
+
+      const q = encodeURIComponent(JSON.stringify(spec));
+      const xlsx = await app.inject({ method: 'GET', url: `/api/export.xlsx?spec=${q}` });
+      expect(xlsx.statusCode).toBe(200);
+      expect(xlsx.headers['content-disposition']).toMatch(/offerdesk-applications-.*\.xlsx/);
+      // A zip container: .xlsx starts with PK.
+      expect(xlsx.rawPayload.subarray(0, 2).toString()).toBe('PK');
+
+      const junk = await app.inject({ method: 'GET', url: '/api/export.csv?spec=%7Bnope' });
+      expect(junk.statusCode).toBe(400);
+    });
+  });
 });

@@ -1,13 +1,16 @@
 import { existsSync } from 'node:fs';
 import fastifyStatic from '@fastify/static';
-import { NotFoundError, type Offerdesk } from '@offerdesk/core';
+import { ConflictError, isoDate, NotFoundError, type Offerdesk } from '@offerdesk/core';
 import {
   ApplicationPatch,
   CapturePosting,
   FLAGS,
   NewApplication,
   NewContact,
+  NewView,
   Status,
+  ViewPatch,
+  ViewSpec,
 } from '@offerdesk/shared';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { ZodError, z } from 'zod';
@@ -19,6 +22,26 @@ const OutreachBody = z.object({
   applicationId: z.string().nullish(),
   channel: z.enum(['email', 'linkedin', 'in-person', 'referral', 'other']),
   summary: z.string().optional(),
+});
+
+/** A saved view, an ad-hoc spec, or both (the spec wins; the view names the file). */
+const ReportBody = z.object({ viewId: z.string().min(1).optional(), spec: ViewSpec.optional() });
+
+/** Downloads are plain links, so an ad-hoc spec travels as a JSON query parameter. */
+const ExportQuery = z.object({
+  view: z.string().min(1).optional(),
+  spec: z
+    .string()
+    .transform((raw, ctx) => {
+      try {
+        return JSON.parse(raw) as unknown;
+      } catch {
+        ctx.addIssue({ code: 'custom', message: 'spec must be JSON' });
+        return z.NEVER;
+      }
+    })
+    .pipe(ViewSpec)
+    .optional(),
 });
 
 const ResponseBody = OutreachBody.extend({
@@ -44,6 +67,9 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
     }
     if (err instanceof NotFoundError) {
       return reply.status(404).send({ error: err.message });
+    }
+    if (err instanceof ConflictError) {
+      return reply.status(409).send({ error: err.message });
     }
     app.log.error(err);
     return reply.status(500).send({ error: 'internal error' });
@@ -123,6 +149,49 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
     return reply.status(201).send(desk.logResponse(ResponseBody.parse(req.body)));
   });
 
+  // ── views, reports & exports ──────────────────────────────────────────────
+  app.get('/api/views', async () => desk.views.list());
+
+  app.post('/api/views', async (req, reply) => {
+    return reply.status(201).send(desk.views.create(NewView.parse(req.body)));
+  });
+
+  app.patch('/api/views/:id', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return desk.views.update(id, ViewPatch.parse(req.body));
+  });
+
+  app.delete('/api/views/:id', async (req, reply) => {
+    const { id } = IdParams.parse(req.params);
+    desk.views.remove(id);
+    return reply.status(204).send();
+  });
+
+  app.get('/api/report', async (req) => {
+    const { view } = z.object({ view: z.string().min(1).optional() }).parse(req.query);
+    return desk.report({ viewId: view });
+  });
+
+  app.post('/api/report', async (req) => desk.report(ReportBody.parse(req.body)));
+
+  app.get('/api/export.csv', async (req, reply) => {
+    const { view, spec } = ExportQuery.parse(req.query);
+    const input = { viewId: view, spec };
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', attachment(exportName(desk, input), 'csv'))
+      .send(desk.exportCsv(input));
+  });
+
+  app.get('/api/export.xlsx', async (req, reply) => {
+    const { view, spec } = ExportQuery.parse(req.query);
+    const input = { viewId: view, spec };
+    return reply
+      .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('content-disposition', attachment(exportName(desk, input), 'xlsx'))
+      .send(await desk.exportXlsx(input));
+  });
+
   // ── web UI ────────────────────────────────────────────────────────────────
   if (opts.webRoot && existsSync(opts.webRoot)) {
     app.register(fastifyStatic, { root: opts.webRoot });
@@ -134,4 +203,22 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
   }
 
   return app;
+}
+
+/** `offerdesk-waiting-to-hear-2026-10-01` */
+function exportName(desk: Offerdesk, input: { viewId?: string; spec?: unknown }): string {
+  const name = input.viewId
+    ? desk.views.get(input.viewId).name
+    : input.spec
+      ? 'applications'
+      : 'everything';
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return `offerdesk-${slug || 'view'}-${isoDate(Date.now())}`;
+}
+
+function attachment(base: string, ext: string): string {
+  return `attachment; filename="${base}.${ext}"`;
 }

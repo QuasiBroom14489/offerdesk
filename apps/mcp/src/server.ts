@@ -1,6 +1,24 @@
+import { writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { extname, isAbsolute, join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { NotFoundError, type Offerdesk } from '@offerdesk/core';
-import { type Application, FLAGS, STATUS_LABELS, STATUSES } from '@offerdesk/shared';
+import {
+  ConflictError,
+  isoDate,
+  NotFoundError,
+  type Offerdesk,
+  toCsv,
+  toXlsx,
+} from '@offerdesk/core';
+import {
+  type Application,
+  cellText,
+  FLAGS,
+  type Report,
+  type SavedView,
+  STATUS_LABELS,
+  STATUSES,
+} from '@offerdesk/shared';
 import { ZodError, z } from 'zod';
 
 /**
@@ -37,7 +55,7 @@ function fail(err: unknown): Content {
   const message =
     err instanceof ZodError
       ? `Invalid input: ${err.issues.map((i) => `${i.path.join('.') || 'input'} ${i.message}`).join('; ')}`
-      : err instanceof NotFoundError
+      : err instanceof NotFoundError || err instanceof ConflictError
         ? err.message
         : err instanceof Error
           ? err.message
@@ -62,6 +80,27 @@ function line(a: Application): string {
   if (a.deadline) bits.push(`due ${a.deadline}`);
   if (a.flags.includes('start')) bits.push('flagged to get started');
   return `${a.companyName} — ${a.role} (${bits.join(', ')}) [id ${a.id}]`;
+}
+
+/** Rows as `a | b | c` lines under a header: easy for a model to read back. */
+function asText(report: Report, limit = 200): string {
+  const lines = [report.columns.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label))];
+  for (const r of report.rows.slice(0, limit)) {
+    lines.push(report.columns.map((c, i) => cellText(c, r.cells[i] ?? null) || '—'));
+  }
+  const more = report.rows.length > limit ? `\n…and ${report.rows.length - limit} more` : '';
+  return lines.map((l) => l.join(' | ')).join('\n') + more;
+}
+
+/** Find a view by id or by name, case-insensitively. */
+function findView(desk: Offerdesk, ref: string): SavedView {
+  const key = ref.trim().toLowerCase();
+  const found = desk.views.list().find((v) => v.id === ref || v.name.toLowerCase() === key);
+  if (!found) {
+    const names = desk.views.list().map((v) => `"${v.name}"`);
+    throw new NotFoundError('view', `${ref} (try ${names.join(', ')})`);
+  }
+  return found;
 }
 
 const Status = z.enum(STATUSES);
@@ -219,6 +258,71 @@ export function createServer(desk: Offerdesk): McpServer {
     }),
   );
 
+  // ── table views ─────────────────────────────────────────────────────────
+  server.registerTool(
+    'list_views',
+    {
+      title: 'List table views',
+      description:
+        "Saved table views (built-in presets and the user's own), with their columns and filters.",
+      annotations: READ,
+    },
+    safe(() => {
+      const views = desk.views.list();
+      return reply(
+        views.map((v) => `${v.name}${v.builtIn ? ' (built in)' : ''} [id ${v.id}]`).join('\n'),
+        views.map((v) => ({ id: v.id, name: v.name, builtIn: v.builtIn, spec: v.spec })),
+      );
+    }),
+  );
+
+  server.registerTool(
+    'run_view',
+    {
+      title: 'Run a table view',
+      description:
+        'Show the rows of a saved table view by name or id, e.g. "Waiting to hear" (applied, no reply yet, with days waiting) or "Response times" (days from applying to first reply). Use for questions like "who haven\'t I heard back from?".',
+      inputSchema: { view: z.string().min(1).describe('View name or id') },
+      annotations: READ,
+    },
+    safe(({ view }) => {
+      const report = desk.report({ viewId: findView(desk, view).id });
+      const title = `${report.view?.name}: ${plural(report.rows.length, 'row')}.`;
+      return reply(report.rows.length === 0 ? title : `${title}\n\n${asText(report)}`);
+    }),
+  );
+
+  server.registerTool(
+    'export_view',
+    {
+      title: 'Export a table view',
+      description:
+        'Save a table view as a spreadsheet file (.xlsx with typed columns and colored statuses, or .csv). Writes to ~/Downloads unless given an absolute path ending in .xlsx or .csv. Returns the path.',
+      inputSchema: {
+        view: z.string().min(1).describe('View name or id'),
+        format: z.enum(['xlsx', 'csv']).default('xlsx'),
+        path: z.string().optional().describe('Absolute file path; defaults to ~/Downloads'),
+      },
+      annotations: { ...ADD, idempotentHint: true },
+    },
+    async ({ view, format, path }) => {
+      try {
+        const v = findView(desk, view);
+        const out =
+          path ?? join(homedir(), 'Downloads', `${slug(v.name)}-${isoDate(Date.now())}.${format}`);
+        const ext = extname(out).slice(1).toLowerCase();
+        if (!isAbsolute(out)) throw new Error('path must be absolute');
+        if (ext !== 'xlsx' && ext !== 'csv') throw new Error('path must end in .xlsx or .csv');
+        const report = desk.report({ viewId: v.id });
+        writeFileSync(out, ext === 'xlsx' ? await toXlsx(report) : toCsv(report));
+        const rows = report.rows.length;
+        return reply(`Saved "${v.name}" (${plural(rows, 'row')}) to ${out}.`, { path: out, rows });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
   // ── changes ─────────────────────────────────────────────────────────────
   server.registerTool(
     'add_application',
@@ -338,5 +442,16 @@ export const AUTO_APPROVABLE_TOOLS = [
   'get_application',
   'follow_ups',
   'deadlines',
+  'list_views',
+  'run_view',
   'capture_posting',
 ] as const;
+
+function slug(name: string): string {
+  return `offerdesk-${
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'view'
+  }`;
+}

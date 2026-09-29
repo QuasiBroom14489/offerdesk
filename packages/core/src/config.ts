@@ -33,6 +33,11 @@ export interface OfferdeskConfig {
   dbUrl: string;
   /** Token for a hosted database. From the environment only, never config. */
   dbAuthToken: string | undefined;
+  /**
+   * Whose data a non-HTTP client (the MCP server) works on. A hosted database
+   * holds one workspace per Clerk user; locally it's 'local' (ADR 0005).
+   */
+  workspaceId: string;
   filesDir: string;
   vaultRoot: string | null;
   vaultApplicationsDir: string;
@@ -62,6 +67,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OfferdeskConfi
     dbPath,
     dbUrl: hosted ?? dbPath,
     dbAuthToken: hosted ? env.TURSO_AUTH_TOKEN : undefined,
+    workspaceId: env.OFFERDESK_WORKSPACE?.trim() || 'local',
     filesDir: resolve(dataDir, 'files'),
     vaultRoot: cfg.paths.vault_root ? fromRoot(cfg.paths.vault_root) : null,
     vaultApplicationsDir: cfg.paths.vault_applications_dir,

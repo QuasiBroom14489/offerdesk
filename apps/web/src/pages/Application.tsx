@@ -1,11 +1,11 @@
 import { STATUS_LABELS, STATUSES, type Status } from '@offerdesk/shared';
 import { type FormEvent, useState } from 'react';
 import { Link } from 'wouter';
-import { useAddNote, useApplication, useSetStatus } from '../api';
+import { useAddNote, useApplication, useSetFlag, useSetStatus } from '../api';
 import { buttonClass, inputClass, quietButtonClass } from '../components/Dialog';
 import { LogTouchForm } from '../components/LogTouchForm';
 import { NewContactDialog } from '../components/NewContactDialog';
-import { StatusMark } from '../components/StatusMark';
+import { StartFlag, StatusMark } from '../components/StatusMark';
 import { Timeline } from '../components/Timeline';
 import { relativeDays, shortDate } from '../format';
 import { ServerDown } from './Home';
@@ -13,6 +13,7 @@ import { ServerDown } from './Home';
 export function ApplicationPage({ id }: { id: string }) {
   const { data: app, isPending, error } = useApplication(id);
   const setStatus = useSetStatus();
+  const setFlag = useSetFlag();
   const addNote = useAddNote();
   const [addingContact, setAddingContact] = useState(false);
 
@@ -32,6 +33,7 @@ export function ApplicationPage({ id }: { id: string }) {
   }
 
   const names = new Map(app.contacts.map((c) => [c.id, c.name]));
+  const started = app.flags.includes('start');
 
   const submitNote = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -55,8 +57,22 @@ export function ApplicationPage({ id }: { id: string }) {
         <Link href="/applications" className="text-sm text-faint hover:text-accent">
           All applications
         </Link>
-        <h1 className="mt-1 text-2xl font-medium tracking-tight">{app.companyName}</h1>
-        <p className="text-lg text-muted">{app.role}</p>
+        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-medium tracking-tight">{app.companyName}</h1>
+            <p className="text-lg text-muted">{app.role}</p>
+          </div>
+          <button
+            type="button"
+            aria-pressed={started}
+            onClick={() => setFlag.mutate({ id, flag: 'start', on: !started })}
+            className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${
+              started ? 'border-fg text-fg' : 'border-line text-muted hover:text-fg'
+            }`}
+          >
+            {started ? <StartFlag label /> : 'Flag to get started'}
+          </button>
+        </div>
         {app.postingUrl && (
           <a
             href={app.postingUrl}

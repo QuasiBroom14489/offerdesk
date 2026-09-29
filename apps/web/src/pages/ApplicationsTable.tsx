@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useApplications } from '../api';
 import { buttonClass, inputClass } from '../components/Dialog';
-import { StatusMark } from '../components/StatusMark';
+import { StartFlag, StatusMark } from '../components/StatusMark';
 import { relativeDays, shortDate } from '../format';
 import { useHotkeys } from '../hotkeys';
 import { ServerDown } from './Home';
@@ -120,7 +120,12 @@ export function ApplicationsTable({ onNew }: { onNew: () => void }) {
                 onClick={() => navigate(`/applications/${a.id}`)}
                 className={`cursor-pointer border-b border-line/60 hover:bg-sunken ${i === cursor ? 'bg-sunken' : ''}`}
               >
-                <td className="py-2.5 pr-4 font-medium">{a.companyName}</td>
+                <td className="py-2.5 pr-4 font-medium">
+                  <span className="inline-flex items-center gap-2">
+                    {a.companyName}
+                    {a.flags.includes('start') && <StartFlag />}
+                  </span>
+                </td>
                 <td className="py-2.5 pr-4 text-muted">
                   {a.role}
                   {a.location && <span className="block text-xs text-faint">{a.location}</span>}

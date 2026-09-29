@@ -9,7 +9,7 @@ import {
 import { type DragEvent, type KeyboardEvent, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useApplications, useSetStatus } from '../api';
-import { StatusMark, stageColor } from '../components/StatusMark';
+import { StartFlag, StatusMark, stageColor } from '../components/StatusMark';
 import { daysUntil, relativeDays } from '../format';
 import { ServerDown } from './Home';
 
@@ -131,7 +131,10 @@ export function Board() {
                     title={`${a.companyName} — ${a.role}`}
                     className="cursor-grab rounded-lg border border-line bg-raised p-3 text-left hover:border-fg/30 active:cursor-grabbing"
                   >
-                    <span className="block truncate">{a.companyName}</span>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate">{a.companyName}</span>
+                      {a.flags.includes('start') && <StartFlag />}
+                    </span>
                     <span className="block truncate text-sm text-muted">{a.role}</span>
                     <span className="mt-2 flex items-center justify-between gap-2 text-xs text-faint">
                       {col.id === 'closed' ? (

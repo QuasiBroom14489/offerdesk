@@ -465,14 +465,17 @@ export class Offerdesk {
       })),
       // Flagged postings already show their deadline under "Get started".
       deadlines: this.upcomingDeadlines(opts.deadlineDays ?? 14).filter((a) => !flagged.has(a.id)),
-      recent: this.recentActivity(opts.recentLimit ?? 15).map((event) => {
-        const c = contactRef(event.contactId);
-        return {
-          event,
-          application: appRef(event.applicationId),
-          contact: c ? { id: c.id, name: c.name } : null,
-        };
-      }),
+      recent: this.recentActivity((opts.recentLimit ?? 15) + 10)
+        .filter((e, _i, all) => !isCaptureDetail(e, all))
+        .slice(0, opts.recentLimit ?? 15)
+        .map((event) => {
+          const c = contactRef(event.contactId);
+          return {
+            event,
+            application: appRef(event.applicationId),
+            contact: c ? { id: c.id, name: c.name } : null,
+          };
+        }),
     };
   }
 
@@ -541,6 +544,17 @@ function toContact(row: ContactRow, events: readonly AnyEvent[]): Contact {
     createdAt: row.created_at,
     lastTouchedAt: touches.length ? Math.max(...touches.map((e) => e.ts)) : null,
   };
+}
+
+/**
+ * A capture writes created + posting.captured + flagged at one instant. The
+ * feed shows it once; the timeline on the application page keeps all three.
+ */
+function isCaptureDetail(e: AnyEvent, all: readonly AnyEvent[]): boolean {
+  if (e.kind !== 'posting.captured' && e.kind !== 'application.flagged') return false;
+  return all.some(
+    (o) => o.kind === 'application.created' && o.applicationId === e.applicationId && o.ts === e.ts,
+  );
 }
 
 /** Compare posting links without tracking parameters, fragments or trailing slashes. */

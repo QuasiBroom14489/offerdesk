@@ -1,8 +1,8 @@
-import type { Dashboard, FollowUpItem, PipelineStats } from '@offerdesk/shared';
+import type { Application, Dashboard, FollowUpItem, PipelineStats } from '@offerdesk/shared';
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { useDashboard } from '../api';
-import { Dot, Pill, type Signal } from '../components/StatusMark';
+import { Dot, Pill, type Signal, StartFlag } from '../components/StatusMark';
 import { countWord, daysUntil, describeEvent, percent, relativeDays, shortDate } from '../format';
 
 /** Follow-ups turn from yellow to red once they have been quiet this long. */
@@ -27,16 +27,29 @@ function deadlineSignal(days: number): Signal {
 
 /** What needs doing today, in the words you would use to say it out loud. */
 function headline(d: Dashboard): string {
+  const clauses: string[] = [];
   const f = d.followUps;
-  let first: string;
-  if (f.length === 0) first = 'You’re caught up on follow-ups';
+  if (f.length === 0) clauses.push('You’re caught up on follow-ups');
   else if (f.length === 1 && f[0])
-    first = `${followUpName(f[0])} has gone quiet for ${f[0].daysWaiting} days`;
-  else first = `${countWord(f.length)} conversations have gone quiet`;
+    clauses.push(`${followUpName(f[0])} has gone quiet for ${f[0].daysWaiting} days`);
+  else clauses.push(`${countWord(f.length)} conversations have gone quiet`);
 
-  const next = d.deadlines[0];
-  if (!next?.deadline) return `${first}, and nothing is due in the next two weeks.`;
-  return `${first}, and ${next.companyName} ${closesPhrase(daysUntil(next.deadline))}.`;
+  const s = d.toStart.length;
+  if (s === 1) clauses.push('one new posting is waiting to be started');
+  else if (s > 1) clauses.push(`${countWord(s, false)} new postings are waiting to be started`);
+
+  const next = [...d.toStart, ...d.deadlines]
+    .filter((a): a is Application & { deadline: string } => a.deadline !== null)
+    .filter((a) => daysUntil(a.deadline) >= 0)
+    .sort((a, b) => a.deadline.localeCompare(b.deadline))[0];
+  clauses.push(
+    next
+      ? `${next.companyName} ${closesPhrase(daysUntil(next.deadline))}`
+      : 'nothing is due in the next two weeks',
+  );
+
+  const last = clauses.pop();
+  return `${clauses.join(', ')}, and ${last}.`;
 }
 
 export function Home() {
@@ -74,6 +87,18 @@ export function Home() {
       </header>
 
       <div className="grid grid-cols-1 gap-x-14 gap-y-12 lg:grid-cols-2">
+        {data.toStart.length > 0 && (
+          <div className="lg:col-span-2">
+            <Section title="Get started" count={data.toStart.length}>
+              <ul className="divide-y divide-line">
+                {data.toStart.map((a) => (
+                  <ToStartRow key={a.id} a={a} />
+                ))}
+              </ul>
+            </Section>
+          </div>
+        )}
+
         <Section title="Follow up" count={data.followUps.length}>
           {data.followUps.length === 0 ? (
             <Empty>Nobody is waiting on you. Anything silent for a week shows up here.</Empty>
@@ -183,6 +208,45 @@ function Signals({ stats }: { stats: PipelineStats }) {
         <span className="font-medium text-fg">{percent(stats.responseRate)}</span> response rate
       </span>
     </div>
+  );
+}
+
+function ToStartRow({ a }: { a: Application }) {
+  const days = a.deadline ? daysUntil(a.deadline) : null;
+  const signal = days === null ? 'grey' : deadlineSignal(days);
+  const when = days === null ? null : closesPhrase(days).replace('closes ', '');
+  const origin = [a.source, a.addedBy === 'vesper' ? 'added by Vesper' : null]
+    .filter(Boolean)
+    .join(', ');
+  return (
+    <li>
+      <Link href={`/applications/${a.id}`} className="flex items-center justify-between gap-4 py-3">
+        <span className="flex min-w-0 items-start gap-3">
+          <span className="mt-1">
+            <StartFlag />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate">
+              {a.companyName}
+              <span className="text-muted">, {a.role}</span>
+            </span>
+            <span className="block truncate text-sm text-muted">
+              {[a.location, origin].filter(Boolean).join(' / ') || 'Saved'}
+            </span>
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-0.5">
+          {when === null ? (
+            <span className="text-xs text-faint">No deadline</span>
+          ) : signal === 'grey' ? (
+            <span className="text-xs text-muted">{when}</span>
+          ) : (
+            <Pill signal={signal}>{when}</Pill>
+          )}
+          {a.deadline && <span className="text-xs text-faint">{shortDate(a.deadline)}</span>}
+        </span>
+      </Link>
+    </li>
   );
 }
 

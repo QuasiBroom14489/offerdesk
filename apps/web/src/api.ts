@@ -5,6 +5,7 @@ import type {
   Contact,
   ContactDetail,
   Dashboard,
+  Flag,
   NewApplication,
   NewContact,
   Status,
@@ -87,6 +88,13 @@ export const useSetStatus = () =>
     },
     onError: (_err, _vars, ctx) => queryClient.setQueryData(['applications'], ctx?.prev),
     onSettled: invalidateAll,
+  });
+
+export const useSetFlag = () =>
+  useMutation({
+    mutationFn: ({ id, flag, on }: { id: string; flag: Flag; on: boolean }) =>
+      request<Application>('POST', `/api/applications/${id}/flags`, { flag, on }),
+    onSuccess: invalidateAll,
   });
 
 export const useAddNote = () =>

@@ -116,3 +116,11 @@ describe('normalizeUrl', () => {
     expect(normalizeUrl('https://www.Example.com/jobs/1/?utm=x#top')).toBe('example.com/jobs/1');
   });
 });
+
+describe('dashboard feed', () => {
+  it('shows a capture as one line', () => {
+    const desk = Offerdesk.open(':memory:');
+    desk.capturePosting({ company: 'Acme', role: 'Intern', postingText: 'x' });
+    expect(desk.dashboard().recent.map((r) => r.event.kind)).toEqual(['application.created']);
+  });
+});

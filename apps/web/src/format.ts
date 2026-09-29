@@ -47,6 +47,7 @@ export function countWord(n: number, capitalize = true): string {
 export function describeEvent(e: AnyEvent): string {
   switch (e.kind) {
     case 'application.created':
+      if (e.source === 'vesper') return 'Vesper added it from your screen';
       return e.payload.status === 'saved'
         ? 'Saved the posting'
         : `Added as ${STATUS_LABELS[e.payload.status].toLowerCase()}`;

@@ -111,7 +111,11 @@ describe('seedDemo', () => {
     const desk = Offerdesk.open(':memory:', { now: () => now });
     seedDemo(desk, now);
     const d = desk.dashboard();
-    expect(d.stats.total).toBe(11);
+    expect(d.stats.total).toBe(13);
+    expect(d.toStart.map((a) => a.companyName)).toEqual([
+      'Summit Health Labs',
+      'Beacon Transit Authority',
+    ]);
     expect(d.stats.offers).toBe(1);
     expect(d.deadlines).toHaveLength(3);
     expect(d.followUps.length).toBeGreaterThan(0);

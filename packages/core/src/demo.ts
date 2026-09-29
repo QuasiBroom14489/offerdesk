@@ -253,4 +253,27 @@ export function seedDemo(desk: Offerdesk, now: number = Date.now()): void {
     summary: 'OA invitation',
     at: ago(9),
   });
+
+  // Two postings Vesper read off Handshake, flagged to get started.
+  desk.capturePosting({
+    company: 'Summit Health Labs',
+    role: 'Clinical Data Analyst Intern',
+    location: 'Nashville, TN',
+    deadline: isoDate(now + 6 * DAY),
+    postingUrl: 'https://app.joinhandshake.com/stu/jobs/1000001',
+    pay: '$28/hr',
+    source: 'Handshake',
+    season: 'Summer 2027',
+    postingText:
+      'Fictional demo posting. Build dashboards on patient-flow data with SQL and Python.',
+  });
+  desk.capturePosting({
+    company: 'Beacon Transit Authority',
+    role: 'Data Science Intern',
+    location: 'Remote',
+    postingUrl: 'https://app.joinhandshake.com/stu/jobs/1000002',
+    source: 'Handshake',
+    season: 'Summer 2027',
+    postingText: 'Fictional demo posting. Model ridership with public GTFS data.',
+  });
 }

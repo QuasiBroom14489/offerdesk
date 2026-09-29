@@ -47,6 +47,8 @@ export interface ActivityItem {
 
 export interface Dashboard {
   stats: PipelineStats;
+  /** Flagged "get started", soonest deadline first. */
+  toStart: Application[];
   followUps: FollowUpItem[];
   deadlines: Application[];
   recent: ActivityItem[];

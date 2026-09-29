@@ -93,4 +93,45 @@ describe('REST API', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().stats).toMatchObject({ total: 1, submitted: 1 });
   });
+
+  it('captures a posting once, flagged to get started', async () => {
+    const payload = {
+      company: 'Acme',
+      role: 'Data Intern',
+      postingUrl: 'https://app.joinhandshake.com/stu/jobs/123',
+      source: 'Handshake',
+    };
+    const first = await app.inject({ method: 'POST', url: '/api/capture', payload });
+    expect(first.statusCode).toBe(201);
+    expect(first.json().application).toMatchObject({ flags: ['start'], addedBy: 'vesper' });
+
+    const again = await app.inject({ method: 'POST', url: '/api/capture', payload });
+    expect(again.statusCode).toBe(200);
+    expect(again.json().duplicate).toBe(true);
+
+    const bad = await app.inject({ method: 'POST', url: '/api/capture', payload: { role: 'x' } });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it('toggles the get-started flag', async () => {
+    const { id } = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/applications',
+        payload: { company: 'A', role: 'r' },
+      })
+    ).json();
+    const on = await app.inject({
+      method: 'POST',
+      url: `/api/applications/${id}/flags`,
+      payload: { flag: 'start', on: true },
+    });
+    expect(on.json().flags).toEqual(['start']);
+    const off = await app.inject({
+      method: 'POST',
+      url: `/api/applications/${id}/flags`,
+      payload: { flag: 'start', on: false },
+    });
+    expect(off.json().flags).toEqual([]);
+  });
 });

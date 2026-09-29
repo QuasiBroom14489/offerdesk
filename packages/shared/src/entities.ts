@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EventSource, FLAGS } from './events.js';
 import { Status } from './status.js';
 
 /** Calendar date without a time, e.g. `2026-10-30`. */
@@ -27,6 +28,10 @@ export const Application = z.object({
   status: Status,
   /** Timestamp of the last event touching this application. */
   lastActivityAt: z.number(),
+  /** Derived: active flags. `start` clears itself once the application moves past `saved`. */
+  flags: z.array(z.enum(FLAGS)),
+  /** Derived: who created it — `manual`, or e.g. `vesper` for a screen capture. */
+  addedBy: EventSource,
 });
 export type Application = z.infer<typeof Application>;
 
@@ -50,6 +55,29 @@ export const ApplicationPatch = NewApplication.omit({
   at: true,
 }).partial();
 export type ApplicationPatch = z.input<typeof ApplicationPatch>;
+
+/**
+ * A job posting read off a page (by Vesper looking at the screen, a browser
+ * extension, or a paste). Only company and role are required: a capture should
+ * leave a field empty rather than guess.
+ */
+export const CapturePosting = z.object({
+  company: z.string().trim().min(1),
+  role: z.string().trim().min(1),
+  location: z.string().trim().min(1).nullish(),
+  deadline: IsoDate.nullish(),
+  postingUrl: z.string().url().nullish(),
+  pay: z.string().trim().min(1).nullish(),
+  /** Where the posting was found, e.g. "Handshake". */
+  source: z.string().trim().min(1).nullish(),
+  season: z.string().trim().min(1).nullish(),
+  /** The job description as read from the page. */
+  postingText: z.string().max(40_000).nullish(),
+  /** Flag it as one to get started on. Defaults to true. */
+  flagToStart: z.boolean().default(true),
+  capturedBy: EventSource.default('vesper'),
+});
+export type CapturePosting = z.input<typeof CapturePosting>;
 
 export const Contact = z.object({
   id: z.string(),

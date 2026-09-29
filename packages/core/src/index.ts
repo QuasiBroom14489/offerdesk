@@ -11,4 +11,10 @@ export {
   pipelineStats,
 } from './derive.js';
 export { EventLog } from './events.js';
-export { isoDate, NotFoundError, Offerdesk, type OfferdeskOptions } from './offerdesk.js';
+export {
+  isoDate,
+  NotFoundError,
+  normalizeUrl,
+  Offerdesk,
+  type OfferdeskOptions,
+} from './offerdesk.js';

@@ -4,10 +4,13 @@ import {
   type Application,
   type ApplicationDetail,
   ApplicationPatch,
+  CapturePosting,
   type Contact,
   type ContactDetail,
   type Dashboard,
   type EventPayload,
+  type EventSource,
+  type Flag,
   type FollowUp,
   NewApplication,
   NewContact,
@@ -107,7 +110,7 @@ export class Offerdesk {
 
   // ── applications ─────────────────────────────────────────────────────────
 
-  addApplication(input: NewApplication): Application {
+  addApplication(input: NewApplication, opts: { source?: EventSource } = {}): Application {
     const a = NewApplication.parse(input);
     const at = a.at ?? this.now();
     const id = randomUUID();
@@ -136,9 +139,111 @@ export class Offerdesk {
         applicationId: id,
         payload: { status: a.status },
         ts: at,
+        source: opts.source,
       });
     });
     return this.getApplication(id);
+  }
+
+  /**
+   * Add a posting read off a page — by Vesper looking at the screen, or any
+   * other capture. Returns the existing application instead of a duplicate
+   * when the posting URL, or the company and role, are already tracked.
+   */
+  capturePosting(input: CapturePosting): { application: Application; duplicate: boolean } {
+    const c = CapturePosting.parse(input);
+    const existing = this.findExisting(c.company, c.role, c.postingUrl ?? null);
+    if (existing) return { application: existing, duplicate: true };
+
+    const at = this.now();
+    const application = transaction(this.db, () => {
+      const app = this.addApplication(
+        {
+          company: c.company,
+          role: c.role,
+          location: c.location,
+          deadline: c.deadline,
+          postingUrl: c.postingUrl,
+          source: c.source,
+          season: c.season,
+          at,
+        },
+        { source: c.capturedBy },
+      );
+      if (c.postingText || c.pay || c.postingUrl) {
+        this.events.append({
+          kind: 'posting.captured',
+          applicationId: app.id,
+          payload: {
+            text: c.postingText ?? undefined,
+            url: c.postingUrl ?? undefined,
+            pay: c.pay ?? undefined,
+          },
+          ts: at,
+          source: c.capturedBy,
+        });
+      }
+      if (c.flagToStart) {
+        this.events.append({
+          kind: 'application.flagged',
+          applicationId: app.id,
+          payload: { flag: 'start', reason: c.source ? `Captured from ${c.source}` : undefined },
+          ts: at,
+          source: c.capturedBy,
+        });
+      }
+      return app;
+    });
+    return { application: this.getApplication(application.id), duplicate: false };
+  }
+
+  flag(id: string, flag: Flag, reason?: string): Application {
+    const app = this.getApplication(id);
+    if (!app.flags.includes(flag)) {
+      this.events.append({
+        kind: 'application.flagged',
+        applicationId: id,
+        payload: { flag, reason },
+        ts: this.now(),
+      });
+    }
+    return this.getApplication(id);
+  }
+
+  unflag(id: string, flag: Flag): Application {
+    const app = this.getApplication(id);
+    if (app.flags.includes(flag)) {
+      this.events.append({
+        kind: 'application.unflagged',
+        applicationId: id,
+        payload: { flag },
+        ts: this.now(),
+      });
+    }
+    return this.getApplication(id);
+  }
+
+  /** Flagged "get started": soonest deadline first, undated ones after, newest first. */
+  toStart(): Application[] {
+    return this.listApplications()
+      .filter((a) => a.flags.includes('start'))
+      .sort((a, b) => {
+        if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
+        if (a.deadline) return -1;
+        if (b.deadline) return 1;
+        return b.createdAt - a.createdAt;
+      });
+  }
+
+  private findExisting(company: string, role: string, url: string | null): Application | null {
+    const apps = this.listApplications();
+    if (url) {
+      const key = normalizeUrl(url);
+      const byUrl = apps.find((a) => a.postingUrl && normalizeUrl(a.postingUrl) === key);
+      if (byUrl) return byUrl;
+    }
+    const same = (x: string, y: string) => x.trim().toLowerCase() === y.trim().toLowerCase();
+    return apps.find((a) => same(a.companyName, company) && same(a.role, role)) ?? null;
   }
 
   updateApplication(id: string, patch: ApplicationPatch): Application {
@@ -348,14 +453,18 @@ export class Offerdesk {
       const c = id ? contacts.get(id) : undefined;
       return c ? { id: c.id, name: c.name, companyName: c.companyName } : null;
     };
+    const toStart = this.toStart();
+    const flagged = new Set(toStart.map((a) => a.id));
     return {
       stats: this.stats(),
+      toStart,
       followUps: this.followUps().map((f) => ({
         ...f,
         application: appRef(f.applicationId),
         contact: contactRef(f.contactId),
       })),
-      deadlines: this.upcomingDeadlines(opts.deadlineDays ?? 14),
+      // Flagged postings already show their deadline under "Get started".
+      deadlines: this.upcomingDeadlines(opts.deadlineDays ?? 14).filter((a) => !flagged.has(a.id)),
       recent: this.recentActivity(opts.recentLimit ?? 15).map((event) => {
         const c = contactRef(event.contactId);
         return {
@@ -411,6 +520,8 @@ function toApplication(row: ApplicationRow, events: readonly AnyEvent[]): Applic
     createdAt: row.created_at,
     status: h.status,
     lastActivityAt: Math.max(h.lastActivityAt, row.created_at),
+    flags: [...h.flags],
+    addedBy: h.addedBy,
   };
 }
 
@@ -430,6 +541,16 @@ function toContact(row: ContactRow, events: readonly AnyEvent[]): Contact {
     createdAt: row.created_at,
     lastTouchedAt: touches.length ? Math.max(...touches.map((e) => e.ts)) : null,
   };
+}
+
+/** Compare posting links without tracking parameters, fragments or trailing slashes. */
+export function normalizeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`.toLowerCase();
+  } catch {
+    return url.trim().toLowerCase();
+  }
 }
 
 export function isoDate(ms: number): string {

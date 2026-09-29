@@ -1,5 +1,7 @@
 import {
   type AnyEvent,
+  type EventSource,
+  type Flag,
   type FollowUp,
   type PipelineStats,
   RESPONDED_STATUSES,
@@ -23,6 +25,8 @@ export interface ApplicationHistory {
   statusSince: number;
   lastActivityAt: number;
   responded: boolean;
+  flags: Set<Flag>;
+  addedBy: EventSource;
 }
 
 /** Fold one application's events (in log order) into its current state. */
@@ -31,7 +35,9 @@ export function foldApplication(events: readonly AnyEvent[]): ApplicationHistory
   let statusSince = 0;
   let lastActivityAt = 0;
   let responded = false;
+  let addedBy: EventSource = 'manual';
   const reached = new Set<Status>();
+  const flags = new Set<Flag>();
 
   for (const ev of events) {
     lastActivityAt = Math.max(lastActivityAt, ev.ts);
@@ -40,11 +46,20 @@ export function foldApplication(events: readonly AnyEvent[]): ApplicationHistory
         status = ev.payload.status;
         statusSince = ev.ts;
         reached.add(status);
+        addedBy = ev.source;
         break;
       case 'status.changed':
         status = ev.payload.to;
         statusSince = ev.ts;
         reached.add(status);
+        // Applying is getting started: the flag has done its job.
+        if (status !== 'saved') flags.delete('start');
+        break;
+      case 'application.flagged':
+        flags.add(ev.payload.flag);
+        break;
+      case 'application.unflagged':
+        flags.delete(ev.payload.flag);
         break;
       case 'response.received':
         responded = true;
@@ -56,7 +71,7 @@ export function foldApplication(events: readonly AnyEvent[]): ApplicationHistory
   if (RESPONDED_STATUSES.has(status) || [...reached].some((s) => RESPONDED_STATUSES.has(s))) {
     responded = true;
   }
-  return { status, reached, statusSince, lastActivityAt, responded };
+  return { status, reached, statusSince, lastActivityAt, responded, flags, addedBy };
 }
 
 export function groupBy<K, V>(items: readonly V[], key: (v: V) => K | null): Map<K, V[]> {

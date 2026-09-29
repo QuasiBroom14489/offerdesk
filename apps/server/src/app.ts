@@ -1,7 +1,14 @@
 import { existsSync } from 'node:fs';
 import fastifyStatic from '@fastify/static';
 import { NotFoundError, type Offerdesk } from '@offerdesk/core';
-import { ApplicationPatch, NewApplication, NewContact, Status } from '@offerdesk/shared';
+import {
+  ApplicationPatch,
+  CapturePosting,
+  FLAGS,
+  NewApplication,
+  NewContact,
+  Status,
+} from '@offerdesk/shared';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { ZodError, z } from 'zod';
 
@@ -68,6 +75,18 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
     const { id } = IdParams.parse(req.params);
     const { status } = z.object({ status: Status }).parse(req.body);
     return desk.setStatus(id, status);
+  });
+
+  app.post('/api/applications/:id/flags', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    const { flag, on } = z.object({ flag: z.enum(FLAGS), on: z.boolean() }).parse(req.body);
+    return on ? desk.flag(id, flag) : desk.unflag(id, flag);
+  });
+
+  /** A posting read off a page. 201 when added, 200 with `duplicate: true` when already tracked. */
+  app.post('/api/capture', async (req, reply) => {
+    const result = desk.capturePosting(CapturePosting.parse(req.body));
+    return reply.status(result.duplicate ? 200 : 201).send(result);
   });
 
   app.post('/api/applications/:id/notes', async (req, reply) => {

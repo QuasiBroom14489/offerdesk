@@ -111,6 +111,9 @@ export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA foreign_keys = ON');
+  // The web server and the MCP server share one file; wait briefly for a lock
+  // instead of failing with SQLITE_BUSY.
+  db.exec('PRAGMA busy_timeout = 5000');
   if (path !== ':memory:') {
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA synchronous = NORMAL');
@@ -141,7 +144,9 @@ function migrate(db: Db): void {
   }
 }
 
+/** Run `fn` atomically. Reentrant: a nested call joins the outer transaction. */
 export function transaction<T>(db: Db, fn: () => T): T {
+  if (db.isTransaction) return fn();
   db.exec('BEGIN');
   try {
     const out = fn();

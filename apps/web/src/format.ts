@@ -68,5 +68,13 @@ export function describeEvent(e: AnyEvent): string {
       return 'Generated a tailored resume';
     case 'note.added':
       return e.payload.text;
+    case 'application.flagged':
+      return e.source === 'vesper' ? 'Vesper flagged it to get started' : 'Flagged to get started';
+    case 'application.unflagged':
+      return 'Removed the get-started flag';
+    case 'posting.captured':
+      return e.source === 'vesper'
+        ? 'Vesper saved the posting from your screen'
+        : 'Saved the posting details';
   }
 }

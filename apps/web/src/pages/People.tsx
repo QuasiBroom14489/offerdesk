@@ -26,9 +26,9 @@ export function People({ onNew }: { onNew: () => void }) {
   if (error) return <ServerDown message={error.message} />;
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">People</h1>
+        <h1 className="text-2xl font-medium">People</h1>
         <button type="button" onClick={onNew} className={buttonClass}>
           Add person
         </button>
@@ -85,12 +85,12 @@ export function Person({ id }: { id: string }) {
   const atCompany = (apps.data ?? []).filter((a) => a.companyId === c.companyId);
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8">
+    <div className="flex flex-col gap-8">
       <header>
         <Link href="/people" className="text-sm text-faint hover:text-accent">
           People
         </Link>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{c.name}</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight">{c.name}</h1>
         <p className="text-lg text-muted">{[c.title, c.companyName].filter(Boolean).join(', ')}</p>
         <p className="mt-2 flex flex-wrap gap-x-4 text-sm">
           {c.email && (
@@ -114,16 +114,16 @@ export function Person({ id }: { id: string }) {
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_20rem]">
         <div className="flex min-w-0 flex-col gap-8">
           <section>
-            <h2 className="mb-3 text-base font-semibold">Log a conversation</h2>
+            <h2 className="mb-3 text-sm font-medium text-muted">Log a conversation</h2>
             <LogTouchForm contactId={id} />
           </section>
           <section>
-            <h2 className="mb-4 text-base font-semibold">History</h2>
+            <h2 className="mb-4 text-sm font-medium text-muted">History</h2>
             <Timeline events={c.timeline} />
           </section>
         </div>
         <aside>
-          <h2 className="mb-2 text-base font-semibold">
+          <h2 className="mb-2 text-sm font-medium text-muted">
             Applications at {c.companyName ?? 'their company'}
           </h2>
           {atCompany.length === 0 ? (

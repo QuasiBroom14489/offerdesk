@@ -1,80 +1,32 @@
 @import "tailwindcss";
 
 /*
- * Palette: Tokyo Night (dark) and Tokyo Night Day (light) — the same scheme as
- * the author's terminal and editor, so the dashboard sits in the same rig.
- * Components use roles, never raw hex.
+ * White and quiet. Color is reserved for meaning — a traffic light:
+ *   green  = moving forward (assessment, interview, offer, heard back)
+ *   yellow = waiting on them (applied, follow-ups, deadlines coming up)
+ *   red    = closed or urgent (rejected, ghosted, overdue)
+ * Everything else is ink and grey. Components use roles, never raw hex.
  */
 :root {
   color-scheme: light;
-  --bg: #e1e2e7;
-  --raised: #eaebef;
-  --sunken: #d6d7dd;
-  --line: #c4c8da;
-  --fg: #343b58;
-  --fg-muted: #5a6591;
-  --fg-faint: #7c83a8;
-  --accent: #2e7de9;
+  --bg: #ffffff;
+  --raised: #ffffff;
+  --sunken: #f6f6f7;
+  --line: #ebebed;
+  --fg: #1d1d1f;
+  --fg-muted: #6e6e73;
+  --fg-faint: #a1a1a6;
+  --accent: #1d1d1f;
   --accent-ink: #ffffff;
-  --attention: #8f5e15;
-  --attention-bg: #efe2c9;
-  --good: #3d6b1f;
-  --bad: #b8254f;
-  /* Ordinal stage ramp: saved → offer. */
-  --stage-saved: #8990b3;
-  --stage-applied: #6d9be8;
-  --stage-oa: #3f7fdc;
-  --stage-interview: #1f5fbf;
-  --stage-offer: #3d6b1f;
-  --stage-closed: #a1a6c5;
-}
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #1a1b26;
-    --raised: #1f2335;
-    --sunken: #16161e;
-    --line: #2f344d;
-    --fg: #c0caf5;
-    --fg-muted: #a9b1d6;
-    --fg-faint: #737aa2;
-    --accent: #7aa2f7;
-    --accent-ink: #1a1b26;
-    --attention: #e0af68;
-    --attention-bg: #2e2a2d;
-    --good: #9ece6a;
-    --bad: #f7768e;
-    --stage-saved: #565f89;
-    --stage-applied: #3d59a1;
-    --stage-oa: #5a7fd9;
-    --stage-interview: #7aa2f7;
-    --stage-offer: #9ece6a;
-    --stage-closed: #414868;
-  }
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #1a1b26;
-  --raised: #1f2335;
-  --sunken: #16161e;
-  --line: #2f344d;
-  --fg: #c0caf5;
-  --fg-muted: #a9b1d6;
-  --fg-faint: #737aa2;
-  --accent: #7aa2f7;
-  --accent-ink: #1a1b26;
-  --attention: #e0af68;
-  --attention-bg: #2e2a2d;
-  --good: #9ece6a;
-  --bad: #f7768e;
-  --stage-saved: #565f89;
-  --stage-applied: #3d59a1;
-  --stage-oa: #5a7fd9;
-  --stage-interview: #7aa2f7;
-  --stage-offer: #9ece6a;
-  --stage-closed: #414868;
+  --green: #1f9d55;
+  --green-bg: #eaf7ef;
+  --yellow: #b7791f;
+  --yellow-dot: #e8b21e;
+  --yellow-bg: #fdf6e3;
+  --red: #d64545;
+  --red-bg: #fdeeee;
+  --grey-dot: #c7c7cc;
 }
 
 @theme inline {
@@ -87,10 +39,17 @@
   --color-faint: var(--fg-faint);
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
-  --color-attention: var(--attention);
-  --color-attention-bg: var(--attention-bg);
-  --color-good: var(--good);
-  --color-bad: var(--bad);
+  --color-green: var(--green);
+  --color-green-bg: var(--green-bg);
+  --color-yellow: var(--yellow);
+  --color-yellow-bg: var(--yellow-bg);
+  --color-red: var(--red);
+  --color-red-bg: var(--red-bg);
+  /* Legacy role names kept so components read naturally. */
+  --color-good: var(--green);
+  --color-bad: var(--red);
+  --color-attention: var(--yellow);
+  --color-attention-bg: var(--yellow-bg);
   --font-sans: "Onest Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -103,20 +62,19 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--fg);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 kbd {
   font-family: var(--font-sans);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   padding: 0.05rem 0.35rem;
   border: 1px solid var(--line);
-  border-bottom-width: 2px;
   border-radius: 4px;
   color: var(--fg-muted);
-  background: var(--raised);
+  background: var(--sunken);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -46,7 +46,7 @@ export function NewContactDialog({
   return (
     <Dialog open={open} onClose={onClose} title="Add a person">
       <form onSubmit={submit} className="flex flex-col gap-4 p-5">
-        <h2 className="text-lg font-semibold">Add a person</h2>
+        <h2 className="text-lg font-medium">Add a person</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Name">
             <input name="name" required autoFocus className={inputClass} />

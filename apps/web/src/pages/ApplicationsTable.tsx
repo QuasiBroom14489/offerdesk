@@ -70,9 +70,9 @@ export function ApplicationsTable({ onNew }: { onNew: () => void }) {
   );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">All applications</h1>
+        <h1 className="text-2xl font-medium">All applications</h1>
         <button type="button" onClick={onNew} className={buttonClass}>
           Add application <kbd className="border-0 bg-transparent text-accent-ink/80">N</kbd>
         </button>

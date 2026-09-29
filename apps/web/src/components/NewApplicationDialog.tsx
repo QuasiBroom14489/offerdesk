@@ -41,7 +41,7 @@ export function NewApplicationDialog({ open, onClose }: { open: boolean; onClose
   return (
     <Dialog open={open} onClose={onClose} title="Add an application">
       <form onSubmit={submit} className="flex flex-col gap-4 p-5">
-        <h2 className="text-lg font-semibold">Add an application</h2>
+        <h2 className="text-lg font-medium">Add an application</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Company">
             <input name="company" required autoFocus className={inputClass} />

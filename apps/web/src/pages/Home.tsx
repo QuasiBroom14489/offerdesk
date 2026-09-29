@@ -2,7 +2,11 @@ import type { Dashboard, FollowUpItem, PipelineStats } from '@offerdesk/shared';
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { useDashboard } from '../api';
+import { Dot, Pill, type Signal } from '../components/StatusMark';
 import { countWord, daysUntil, describeEvent, percent, relativeDays, shortDate } from '../format';
+
+/** Follow-ups turn from yellow to red once they have been quiet this long. */
+const OVERDUE_DAYS = 14;
 
 function followUpName(f: FollowUpItem): string {
   if (f.contact) return f.contact.name;
@@ -15,10 +19,13 @@ function closesPhrase(days: number): string {
   return `closes in ${days} days`;
 }
 
-/**
- * The home screen leads with a sentence, not a KPI row: what needs doing
- * today, in the words you would use to say it out loud.
- */
+function deadlineSignal(days: number): Signal {
+  if (days <= 3) return 'red';
+  if (days <= 7) return 'yellow';
+  return 'grey';
+}
+
+/** What needs doing today, in the words you would use to say it out loud. */
 function headline(d: Dashboard): string {
   const f = d.followUps;
   let first: string;
@@ -35,7 +42,7 @@ function headline(d: Dashboard): string {
 export function Home() {
   const { data, isPending, error } = useDashboard();
 
-  if (isPending) return <p className="text-faint">Loading your pipeline…</p>;
+  if (isPending) return <p className="text-faint">Loading…</p>;
   if (error) return <ServerDown message={error.message} />;
 
   const today = new Date().toLocaleDateString(undefined, {
@@ -46,30 +53,30 @@ export function Home() {
 
   if (data.stats.total === 0) {
     return (
-      <div className="max-w-2xl">
-        <p className="text-muted">{today}</p>
-        <h1 className="mt-2 text-3xl leading-tight font-medium text-balance md:text-[2.6rem]">
-          Nothing tracked yet. Press <kbd className="align-middle text-base">N</kbd> to add the
-          first posting you’re eyeing.
+      <div className="max-w-3xl">
+        <p className="text-sm text-faint">{today}</p>
+        <h1 className="mt-2 text-2xl font-medium text-balance">
+          Nothing tracked yet. Press <kbd className="align-middle">N</kbd> to add the first posting
+          you’re eyeing.
         </h1>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-10">
-      <header className="max-w-4xl">
-        <p className="text-muted">{today}</p>
-        <h1 className="mt-2 text-3xl leading-[1.15] font-medium tracking-[-0.015em] text-balance md:text-[2.75rem]">
+    <div className="flex flex-col gap-12">
+      <header>
+        <p className="text-sm text-faint">{today}</p>
+        <h1 className="mt-1.5 max-w-3xl text-2xl leading-snug font-medium tracking-[-0.01em] text-balance md:text-[1.75rem]">
           {headline(data)}
         </h1>
-        <StatLine stats={data.stats} />
+        <Signals stats={data.stats} />
       </header>
 
-      <div className="grid grid-cols-1 gap-x-10 gap-y-10 lg:grid-cols-[1.25fr_1fr]">
+      <div className="grid grid-cols-1 gap-x-14 gap-y-12 lg:grid-cols-2">
         <Section title="Follow up" count={data.followUps.length}>
           {data.followUps.length === 0 ? (
-            <Empty>Nobody is waiting on you. Anything silent for a week will show up here.</Empty>
+            <Empty>Nobody is waiting on you. Anything silent for a week shows up here.</Empty>
           ) : (
             <ul className="divide-y divide-line">
               {data.followUps.map((f) => (
@@ -79,29 +86,33 @@ export function Home() {
           )}
         </Section>
 
-        <Section title="Deadlines in the next two weeks" count={data.deadlines.length}>
+        <Section title="Deadlines" count={data.deadlines.length}>
           {data.deadlines.length === 0 ? (
-            <Empty>No saved postings close in the next 14 days.</Empty>
+            <Empty>Nothing you’ve saved closes in the next two weeks.</Empty>
           ) : (
             <ul className="divide-y divide-line">
               {data.deadlines.map((a) => {
                 const days = a.deadline ? daysUntil(a.deadline) : 0;
+                const signal = deadlineSignal(days);
+                const when = closesPhrase(days).replace('closes ', '');
                 return (
                   <li key={a.id}>
                     <Link
                       href={`/applications/${a.id}`}
-                      className="flex items-baseline justify-between gap-4 py-3 hover:text-accent"
+                      className="flex items-center justify-between gap-4 py-3"
                     >
                       <span className="min-w-0">
-                        <span className="block truncate font-medium">{a.companyName}</span>
+                        <span className="block truncate">{a.companyName}</span>
                         <span className="block truncate text-sm text-muted">{a.role}</span>
                       </span>
-                      <span
-                        className={`shrink-0 text-right text-sm ${days <= 5 ? 'text-attention font-medium' : 'text-muted'}`}
-                      >
-                        {a.deadline && shortDate(a.deadline)}
-                        <span className="block text-xs text-faint">
-                          {closesPhrase(days).replace('closes ', '')}
+                      <span className="flex shrink-0 flex-col items-end gap-0.5">
+                        {signal === 'grey' ? (
+                          <span className="text-xs text-muted">{when}</span>
+                        ) : (
+                          <Pill signal={signal}>{when}</Pill>
+                        )}
+                        <span className="text-xs text-faint">
+                          {a.deadline && shortDate(a.deadline)}
                         </span>
                       </span>
                     </Link>
@@ -117,29 +128,28 @@ export function Home() {
         </Section>
 
         <Section title="Recent activity">
-          <ol className="flex flex-col gap-3">
-            {data.recent.map(({ event, application, contact }) => (
+          <ol className="flex flex-col gap-3.5">
+            {data.recent.slice(0, 8).map(({ event, application, contact }) => (
               <li key={event.id} className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3 text-sm">
                 <span className="text-faint">{relativeDays(event.ts)}</span>
                 <span className="min-w-0">
-                  <span className="text-fg">{describeEvent(event)}</span>
-                  {(application || contact) && (
-                    <span className="block truncate text-muted">
-                      {application ? (
-                        <Link
-                          href={`/applications/${application.id}`}
-                          className="hover:text-accent"
-                        >
-                          {application.label}
-                        </Link>
-                      ) : (
-                        contact && (
-                          <Link href={`/people/${contact.id}`} className="hover:text-accent">
-                            {contact.name}
-                          </Link>
-                        )
-                      )}
-                    </span>
+                  <span>{describeEvent(event)}</span>
+                  {application ? (
+                    <Link
+                      href={`/applications/${application.id}`}
+                      className="block truncate text-muted hover:text-fg"
+                    >
+                      {application.label}
+                    </Link>
+                  ) : (
+                    contact && (
+                      <Link
+                        href={`/people/${contact.id}`}
+                        className="block truncate text-muted hover:text-fg"
+                      >
+                        {contact.name}
+                      </Link>
+                    )
                   )}
                 </span>
               </li>
@@ -151,26 +161,28 @@ export function Home() {
   );
 }
 
-function StatLine({ stats }: { stats: PipelineStats }) {
-  const items: [string, string][] = [
-    [String(stats.total), 'tracked'],
-    [String(stats.submitted), 'submitted'],
-    [percent(stats.responseRate), 'heard back'],
-    [String(stats.interviews), stats.interviews === 1 ? 'interview' : 'interviews'],
-    [String(stats.offers), stats.offers === 1 ? 'offer' : 'offers'],
+/** The whole pipeline as a traffic light: moving, waiting, closed, not yet sent. */
+function Signals({ stats }: { stats: PipelineStats }) {
+  const b = stats.byStatus;
+  const items: [Signal, number, string][] = [
+    ['green', b.oa + b.interview + b.offer, 'moving forward'],
+    ['yellow', b.applied, 'waiting to hear'],
+    ['red', b.rejected + b.ghosted, 'closed'],
+    ['grey', b.saved, 'not yet applied'],
   ];
   return (
-    <dl className="mt-6 flex flex-wrap gap-x-8 gap-y-2">
-      {items.map(([value, label]) => (
-        <div key={label} className="flex items-baseline gap-1.5">
-          <dt className="sr-only">{label}</dt>
-          <dd className="text-lg font-semibold text-fg">{value}</dd>
-          <span aria-hidden className="text-sm text-muted">
-            {label}
-          </span>
-        </div>
+    <div className="mt-6 flex flex-wrap items-center gap-x-7 gap-y-2 text-sm">
+      {items.map(([signal, n, label]) => (
+        <span key={label} className="inline-flex items-center gap-2">
+          <Dot signal={signal} />
+          <span className="font-medium">{n}</span>
+          <span className="text-muted">{label}</span>
+        </span>
       ))}
-    </dl>
+      <span className="text-muted">
+        <span className="font-medium text-fg">{percent(stats.responseRate)}</span> response rate
+      </span>
+    </div>
   );
 }
 
@@ -182,72 +194,56 @@ function FollowUpRow({ f }: { f: FollowUpItem }) {
     : f.application?.label.split(' — ')[1];
   return (
     <li>
-      <Link href={href} className="flex items-center justify-between gap-4 py-3 hover:text-accent">
+      <Link href={href} className="flex items-center justify-between gap-4 py-3">
         <span className="min-w-0">
-          <span className="block truncate font-medium">
+          <span className="block truncate">
             {followUpName(f)}
-            {context && <span className="font-normal text-muted">, {context}</span>}
+            {context && <span className="text-muted">, {context}</span>}
           </span>
           <span className="block text-sm text-muted">{what}</span>
         </span>
-        <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-attention-bg px-2.5 py-0.5 text-sm font-medium text-attention">
-          <svg
-            aria-hidden
-            viewBox="0 0 16 16"
-            className="size-3.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-          >
-            <circle cx="8" cy="8" r="6.25" />
-            <path d="M8 4.5V8l2.25 1.5" strokeLinecap="round" />
-          </svg>
-          {f.daysWaiting} days
-        </span>
+        <Pill signal={f.daysWaiting >= OVERDUE_DAYS ? 'red' : 'yellow'}>{f.daysWaiting} days</Pill>
       </Link>
     </li>
   );
 }
 
-/**
- * Horizontal funnel. One series, one hue, every bar direct-labeled; hovering a
- * stage shows its conversion from the previous one.
- */
+/** One series, so one neutral ink. Every bar is labeled; hover shows conversion. */
 function Funnel({ stats }: { stats: PipelineStats }) {
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(1, ...stats.funnel.map((s) => s.count));
   return (
     <div>
-      <ul className="flex flex-col gap-2.5" aria-label="Pipeline funnel">
+      <ul className="flex flex-col gap-4" aria-label="Pipeline funnel">
         {stats.funnel.map((s, i) => {
           const prev = stats.funnel[i - 1];
           const conv = prev && prev.count > 0 ? s.count / prev.count : null;
           return (
             <li
               key={s.stage}
-              className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-3 text-sm"
+              className="text-sm"
               onMouseEnter={() => setHover(i)}
               onMouseLeave={() => setHover(null)}
             >
-              <span className="text-muted">{s.stage}</span>
-              <span className="relative flex h-7 items-center">
+              <span className="mb-1.5 flex items-baseline justify-between">
+                <span className="text-muted">{s.stage}</span>
+                <span>
+                  {hover === i && conv !== null && (
+                    <span className="mr-2 text-xs text-faint">
+                      {percent(conv)} of {prev?.stage.toLowerCase()}
+                    </span>
+                  )}
+                  <span className="font-medium">{s.count}</span>
+                </span>
+              </span>
+              <span className="block h-1.5 rounded-full bg-sunken">
                 <span
-                  className="h-full rounded-r-[4px] transition-opacity"
+                  className="block h-full rounded-full bg-fg transition-opacity"
                   style={{
-                    width: `max(${(s.count / max) * 100}%, 2px)`,
-                    background: 'var(--accent)',
-                    opacity: hover === null || hover === i ? 1 : 0.45,
+                    width: `max(${(s.count / max) * 100}%, 4px)`,
+                    opacity: hover === null || hover === i ? 1 : 0.35,
                   }}
                 />
-                <span className="ml-2 font-semibold text-fg">{s.count}</span>
-                {hover === i && conv !== null && (
-                  <span
-                    role="tooltip"
-                    className="ml-3 rounded-md border border-line bg-raised px-2 py-0.5 text-xs text-muted shadow-sm"
-                  >
-                    {percent(conv)} of {prev?.stage.toLowerCase()}
-                  </span>
-                )}
               </span>
             </li>
           );
@@ -279,11 +275,9 @@ function Section({
 }) {
   return (
     <section className="min-w-0">
-      <h2 className="mb-2 flex items-baseline gap-2 border-b border-line pb-2 text-base font-semibold">
+      <h2 className="mb-1 flex items-baseline gap-2 text-sm font-medium text-muted">
         {title}
-        {count !== undefined && count > 0 && (
-          <span className="text-sm font-normal text-faint">{count}</span>
-        )}
+        {count !== undefined && count > 0 && <span className="text-faint">{count}</span>}
       </h2>
       {children}
     </section>
@@ -297,7 +291,7 @@ function Empty({ children }: { children: React.ReactNode }) {
 export function ServerDown({ message }: { message: string }) {
   return (
     <div className="max-w-xl">
-      <h1 className="text-xl font-semibold">Can’t reach the OfferDesk server</h1>
+      <h1 className="text-xl font-medium">Can’t reach the OfferDesk server</h1>
       <p className="mt-2 text-muted">
         Start it with <code className="rounded bg-sunken px-1.5 py-0.5">pnpm start</code> and this
         page will reload on its own.

@@ -81,13 +81,13 @@ export function Board() {
   return (
     <div className="flex h-full flex-col gap-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Board</h1>
+        <h1 className="text-2xl font-medium">Board</h1>
         <p className="text-sm text-faint">
           Drag a card, or focus it and press <kbd>[</kbd> <kbd>]</kbd> to move it. <kbd>J</kbd>{' '}
           <kbd>K</kbd> move between cards.
         </p>
       </header>
-      <div className="-mx-4 flex flex-1 gap-3 overflow-x-auto px-4 pb-4 md:mx-0 md:px-0">
+      <div className="-mx-4 flex flex-1 gap-2 overflow-x-auto px-4 pb-4 md:mx-0 md:px-0">
         {COLUMNS.map((col) => {
           const cards = data
             .filter((a) => col.statuses.includes(a.status))
@@ -103,17 +103,15 @@ export function Board() {
               }}
               onDragLeave={() => setDragOver((c) => (c === col.id ? null : c))}
               onDrop={onDrop(col)}
-              className={`flex min-w-44 flex-1 basis-0 flex-col rounded-lg border p-2 transition-colors ${
-                dragOver === col.id ? 'border-accent bg-sunken' : 'border-transparent bg-sunken/60'
+              className={`flex min-w-40 flex-1 basis-0 flex-col rounded-lg p-1.5 transition-colors ${
+                dragOver === col.id ? 'bg-sunken' : ''
               }`}
             >
-              <h2 className="flex items-center gap-2 px-1.5 pt-1 pb-2.5 text-sm font-semibold">
+              <h2 className="flex items-center gap-2 px-1.5 pt-1 pb-3 text-sm font-medium">
                 <span
                   aria-hidden
                   className="size-2 rounded-full"
-                  style={{
-                    background: col.id === 'closed' ? 'var(--stage-closed)' : stageColor(col.drop),
-                  }}
+                  style={{ background: stageColor(col.drop) }}
                 />
                 {col.label}
                 <span className="font-normal text-faint">{cards.length}</span>
@@ -131,9 +129,9 @@ export function Board() {
                     onClick={() => navigate(`/applications/${a.id}`)}
                     onKeyDown={onCardKey(a)}
                     title={`${a.companyName} — ${a.role}`}
-                    className="cursor-grab rounded-md border border-line bg-raised p-3 text-left hover:border-accent active:cursor-grabbing"
+                    className="cursor-grab rounded-lg border border-line bg-raised p-3 text-left hover:border-fg/30 active:cursor-grabbing"
                   >
-                    <span className="block truncate font-medium">{a.companyName}</span>
+                    <span className="block truncate">{a.companyName}</span>
                     <span className="block truncate text-sm text-muted">{a.role}</span>
                     <span className="mt-2 flex items-center justify-between gap-2 text-xs text-faint">
                       {col.id === 'closed' ? (
@@ -143,7 +141,13 @@ export function Board() {
                       )}
                       {a.deadline && a.status === 'saved' && (
                         <span
-                          className={daysUntil(a.deadline) <= 5 ? 'font-medium text-attention' : ''}
+                          className={
+                            daysUntil(a.deadline) <= 3
+                              ? 'font-medium text-red'
+                              : daysUntil(a.deadline) <= 7
+                                ? 'font-medium text-yellow'
+                                : ''
+                          }
                         >
                           due{' '}
                           {relativeDays(new Date(`${a.deadline}T00:00`).getTime()).replace(

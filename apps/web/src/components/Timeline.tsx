@@ -1,12 +1,20 @@
 import type { AnyEvent } from '@offerdesk/shared';
 import { describeEvent } from '../format';
+import { stageColor } from './StatusMark';
 
-const KIND_TONE: Partial<Record<AnyEvent['kind'], string>> = {
-  'status.changed': 'var(--accent)',
-  'response.received': 'var(--good)',
-  'outreach.sent': 'var(--fg-muted)',
-  'interview.scheduled': 'var(--accent)',
-};
+/** Status changes take their new stage's signal; replies are green; the rest stay grey. */
+function tone(e: AnyEvent): string {
+  switch (e.kind) {
+    case 'status.changed':
+      return stageColor(e.payload.to);
+    case 'application.created':
+      return stageColor(e.payload.status);
+    case 'response.received':
+      return 'var(--green)';
+    default:
+      return 'var(--grey-dot)';
+  }
+}
 
 /** The event log, newest first. This is the application's real history. */
 export function Timeline({ events, names }: { events: AnyEvent[]; names?: Map<string, string> }) {
@@ -18,11 +26,9 @@ export function Timeline({ events, names }: { events: AnyEvent[]; names?: Map<st
           <span
             aria-hidden
             className="absolute top-1.5 -left-[25px] size-2.5 rounded-full border-2 border-bg"
-            style={{ background: KIND_TONE[e.kind] ?? 'var(--fg-faint)' }}
+            style={{ background: tone(e) }}
           />
-          <p className={e.kind === 'note.added' ? 'whitespace-pre-wrap text-fg' : 'text-fg'}>
-            {describeEvent(e)}
-          </p>
+          <p className={e.kind === 'note.added' ? 'whitespace-pre-wrap' : ''}>{describeEvent(e)}</p>
           <p className="text-xs text-faint">
             {new Date(e.ts).toLocaleDateString(undefined, {
               month: 'short',

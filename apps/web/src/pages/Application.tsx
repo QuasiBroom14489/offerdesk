@@ -50,12 +50,12 @@ export function ApplicationPage({ id }: { id: string }) {
   ];
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8">
+    <div className="flex flex-col gap-8">
       <header>
         <Link href="/applications" className="text-sm text-faint hover:text-accent">
           All applications
         </Link>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{app.companyName}</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight">{app.companyName}</h1>
         <p className="text-lg text-muted">{app.role}</p>
         {app.postingUrl && (
           <a
@@ -72,7 +72,7 @@ export function ApplicationPage({ id }: { id: string }) {
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_20rem]">
         <div className="flex min-w-0 flex-col gap-8">
           <section>
-            <h2 className="mb-3 text-base font-semibold">Move to</h2>
+            <h2 className="mb-3 text-sm font-medium text-muted">Move to</h2>
             <div className="flex flex-wrap gap-1.5">
               {STATUSES.map((s: Status) => (
                 <button
@@ -93,12 +93,12 @@ export function ApplicationPage({ id }: { id: string }) {
           </section>
 
           <section>
-            <h2 className="mb-3 text-base font-semibold">Log a conversation</h2>
+            <h2 className="mb-3 text-sm font-medium text-muted">Log a conversation</h2>
             <LogTouchForm applicationId={id} contacts={app.contacts} />
           </section>
 
           <section>
-            <h2 className="mb-3 text-base font-semibold">Add a note</h2>
+            <h2 className="mb-3 text-sm font-medium text-muted">Add a note</h2>
             <form onSubmit={submitNote} className="flex flex-col gap-2">
               <textarea
                 name="text"
@@ -116,7 +116,7 @@ export function ApplicationPage({ id }: { id: string }) {
           </section>
 
           <section>
-            <h2 className="mb-4 text-base font-semibold">History</h2>
+            <h2 className="mb-4 text-sm font-medium text-muted">History</h2>
             <Timeline events={app.timeline} names={names} />
           </section>
         </div>
@@ -132,7 +132,7 @@ export function ApplicationPage({ id }: { id: string }) {
           </dl>
 
           <section>
-            <h2 className="mb-2 flex items-center justify-between text-base font-semibold">
+            <h2 className="mb-2 flex items-center justify-between text-sm font-medium text-muted">
               People at {app.companyName}
             </h2>
             {app.contacts.length === 0 ? (

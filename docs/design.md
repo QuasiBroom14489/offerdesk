@@ -4,32 +4,35 @@
 
 The home screen answers one question: **what do I need to do today?** In
 recruiting that is almost always "nudge someone who went quiet" or "submit
-before a deadline", so the page leads with a sentence that says exactly that —
+before a deadline", so the page leads with a sentence that says exactly that:
 
-> Four conversations have gone quiet, and Tidewater Insurance closes in 4 days.
+> Three conversations have gone quiet, and Tidewater Insurance closes in 4 days.
 
-— in place of a row of KPI tiles. The numbers are still there, one line below,
-at reading size rather than poster size.
+## Look
 
-## Palette
+White, quiet, and minimal. Ink text, grey secondary text, hairline dividers,
+no card shadows or fills. **Color only ever means something**, and it follows
+a traffic light:
 
-Tokyo Night (dark) and Tokyo Night Day (light): the same scheme as the author's
-terminal, editor and window manager, so the dashboard sits in the same rig.
-Components reference roles (`--fg`, `--accent`, `--attention`), never hex, and
-the theme follows the OS unless overridden in the sidebar.
+| Signal | Means | Used for |
+| --- | --- | --- |
+| Green | Moving forward | Assessment, interviewing, offer; replies in the timeline |
+| Yellow | Waiting on them | Applied; follow-ups under 14 days; deadlines within a week |
+| Red | Closed or urgent | Rejected, ghosted; follow-ups 14+ days; deadlines within 3 days |
+| Grey | Neutral | Saved, withdrawn; everything else |
 
-- **Pipeline stages** use an ordinal blue ramp (saved → interview), green for
-  an offer, and hollow grey dots for closed outcomes. A stage is always shown
-  with its name — never color alone.
-- **Attention** (amber, with a clock icon) is reserved for "waiting on you".
-  Nothing else uses it.
-- **The funnel** is one series, so it is one hue, direct-labeled, with a hidden
-  data table for screen readers and conversion rates on hover.
+A signal is never color alone: every dot sits beside a word, and every pill
+contains its value ("19 days", "in 4 days"). Tokens live in
+`apps/web/src/styles.css`; the status → signal map is `STATUS_SIGNAL` in
+`components/StatusMark.tsx`.
+
+The pipeline funnel is a single series, so it uses neutral ink bars rather than
+a signal color, with every bar labeled and conversion rates on hover.
 
 ## Type
 
-Onest, one family throughout. The headline is set large at weight 500 with
-slight negative tracking; everything else stays at 14–16px.
+Onest, one family throughout. The headline is 28px at weight 500; everything
+else is 14–16px. Section titles are small and grey so the content leads.
 
 ## Keyboard
 
@@ -37,7 +40,7 @@ slight negative tracking; everything else stays at 14–16px.
 | --- | --- |
 | `⌘K` or `/` | Command palette: jump to any page, application or person |
 | `N` | Add an application |
-| `G` then `H` / `B` / `A` / `P` | Home, Board, All applications, People |
+| `G` then `H` / `B` / `A` / `P` | Home, Board, Applications, People |
 | `J` / `K` | Move through cards or table rows |
 | `[` / `]` (or `H` / `L`) on a focused card | Move it to the previous or next stage |
 | `Enter` | Open the selected row |

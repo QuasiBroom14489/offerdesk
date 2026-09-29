@@ -1,6 +1,7 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { dirname, resolve } from 'node:path';
+import { type Client, createClient, type Transaction } from '@libsql/client';
 
 /**
  * Schema. Entity tables hold descriptive, editable facts (a role's title, a
@@ -118,56 +119,130 @@ export const MIGRATIONS: readonly string[] = [
   `,
 ];
 
-export type Db = DatabaseSync;
+/** A value SQLite can bind. */
+export type SqlArg = string | number | bigint | null;
 
-/** Open (and migrate) a database. Pass `:memory:` for tests. */
-export function openDb(path: string): Db {
-  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
-  const db = new DatabaseSync(path);
-  db.exec('PRAGMA foreign_keys = ON');
-  // The web server and the MCP server share one file; wait briefly for a lock
-  // instead of failing with SQLITE_BUSY.
-  db.exec('PRAGMA busy_timeout = 5000');
-  if (path !== ':memory:') {
-    db.exec('PRAGMA journal_mode = WAL');
-    db.exec('PRAGMA synchronous = NORMAL');
+/**
+ * The only way core touches the database: libSQL, which opens a local file,
+ * `:memory:` for tests, or a hosted Turso database (ADR 0005). Every call
+ * inside `transaction()` runs on that transaction, wherever it is awaited.
+ */
+export interface Db {
+  all<T>(sql: string, ...args: SqlArg[]): Promise<T[]>;
+  get<T>(sql: string, ...args: SqlArg[]): Promise<T | undefined>;
+  run(sql: string, ...args: SqlArg[]): Promise<{ changes: number; lastInsertRowid: number }>;
+  /** Run a script of statements with no parameters. */
+  exec(sql: string): Promise<void>;
+  /** Run `fn` atomically. Reentrant: a nested call joins the outer transaction. */
+  transaction<T>(fn: () => Promise<T>): Promise<T>;
+  close(): void;
+}
+
+class LibsqlDb implements Db {
+  /** The open transaction for the current async call chain, if any. */
+  private readonly tx = new AsyncLocalStorage<Transaction>();
+
+  constructor(private readonly client: Client) {}
+
+  private get target(): Client | Transaction {
+    return this.tx.getStore() ?? this.client;
   }
-  migrate(db);
+
+  async all<T>(sql: string, ...args: SqlArg[]): Promise<T[]> {
+    const rs = await this.target.execute({ sql, args });
+    return rs.rows as unknown as T[];
+  }
+
+  async get<T>(sql: string, ...args: SqlArg[]): Promise<T | undefined> {
+    return (await this.all<T>(sql, ...args))[0];
+  }
+
+  async run(sql: string, ...args: SqlArg[]) {
+    const rs = await this.target.execute({ sql, args });
+    return { changes: rs.rowsAffected, lastInsertRowid: Number(rs.lastInsertRowid ?? 0) };
+  }
+
+  async exec(sql: string): Promise<void> {
+    await this.target.executeMultiple(sql);
+  }
+
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.tx.getStore()) return fn();
+    const tx = await this.client.transaction('write');
+    try {
+      const out = await this.tx.run(tx, fn);
+      await tx.commit();
+      return out;
+    } catch (err) {
+      await tx.rollback().catch(() => {});
+      throw err;
+    } finally {
+      tx.close();
+    }
+  }
+
+  close(): void {
+    this.client.close();
+  }
+}
+
+/**
+ * Open (and migrate) a database: a file path, `:memory:`, or a `libsql://`
+ * URL with its auth token.
+ */
+export async function openDb(location: string, authToken?: string): Promise<Db> {
+  const remote = /^(libsql|https?|wss?):/.test(location);
+  const url = remote || location === ':memory:' ? location : fileUrl(location);
+  // Two local processes (web and MCP) can share one file: wait for a lock
+  // instead of failing with SQLITE_BUSY. libSQL turns foreign keys on per connection.
+  const db = new LibsqlDb(createClient({ url, authToken, timeout: 5000 }));
+  if (url.startsWith('file:')) await db.exec('PRAGMA journal_mode = WAL');
+  await migrate(db);
   return db;
 }
 
-function migrate(db: Db): void {
-  const row = db.prepare('PRAGMA user_version').get() as { user_version: number };
-  if (row.user_version >= MIGRATIONS.length) return;
-  // Table rebuilds need foreign keys off, and the pragma is a no-op inside a
-  // transaction — so toggle it around the loop and verify integrity after.
-  db.exec('PRAGMA foreign_keys = OFF');
-  try {
-    for (let v = row.user_version; v < MIGRATIONS.length; v++) {
-      transaction(db, () => {
-        db.exec(MIGRATIONS[v] as string);
-        db.exec(`PRAGMA user_version = ${v + 1}`);
-      });
+function fileUrl(path: string): string {
+  const file = path.startsWith('file:') ? path.slice(5) : resolve(path);
+  mkdirSync(dirname(file), { recursive: true });
+  return `file:${file}`;
+}
+
+async function migrate(db: Db): Promise<void> {
+  // Hosted SQLite may read `PRAGMA user_version` but not set it, so applied
+  // migrations are rows. Databases from before this table recorded their
+  // version in user_version; carry it over once.
+  await db.exec(
+    'CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)',
+  );
+  let current =
+    (await db.get<{ v: number | null }>('SELECT max(version) AS v FROM schema_migrations'))?.v ?? 0;
+  if (current === 0) {
+    const legacy =
+      (await db.get<{ user_version: number }>('PRAGMA user_version'))?.user_version ?? 0;
+    for (let v = 1; v <= legacy; v++) {
+      await db.run('INSERT INTO schema_migrations VALUES (?, 0)', v);
     }
-    const broken = db.prepare('PRAGMA foreign_key_check').all();
+    current = legacy;
+  }
+  for (let v = current; v < MIGRATIONS.length; v++) {
+    // Table rebuilds need foreign keys off, and the pragma is a no-op inside a
+    // transaction, so it wraps BEGIN/COMMIT in the same script (one connection).
+    try {
+      await db.exec(
+        `PRAGMA foreign_keys = OFF; BEGIN; ${MIGRATIONS[v]}; INSERT INTO schema_migrations VALUES (${v + 1}, ${Date.now()}); COMMIT; PRAGMA foreign_keys = ON;`,
+      );
+    } catch (err) {
+      await db.exec('ROLLBACK; PRAGMA foreign_keys = ON;').catch(() => {});
+      throw err;
+    }
+    const broken = await db.all('PRAGMA foreign_key_check');
     if (broken.length > 0) {
-      throw new Error(`migration left ${broken.length} broken foreign key(s)`);
+      throw new Error(`migration ${v + 1} left ${broken.length} broken foreign key(s)`);
     }
-  } finally {
-    db.exec('PRAGMA foreign_keys = ON');
   }
 }
 
 /** Run `fn` atomically. Reentrant: a nested call joins the outer transaction. */
-export function transaction<T>(db: Db, fn: () => T): T {
-  if (db.isTransaction) return fn();
-  db.exec('BEGIN');
-  try {
-    const out = fn();
-    db.exec('COMMIT');
-    return out;
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+export function transaction<T>(db: Db, fn: () => Promise<T>): Promise<T> {
+  return db.transaction(fn);
 }

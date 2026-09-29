@@ -7,6 +7,7 @@ import { buildServer } from './app.js';
 const USAGE = `offerdesk <command>
 
   serve        start the API and dashboard
+  migrate      bring the configured database up to date (e.g. a hosted one)
   seed-demo    reset $OFFERDESK_DB (default data/demo.db) with fictional data
 `;
 
@@ -15,7 +16,10 @@ async function main(argv: string[]): Promise<void> {
   switch (command) {
     case 'serve': {
       const cfg = loadConfig();
-      const desk = Offerdesk.open(cfg.dbPath, { followUpAfterDays: cfg.followUpAfterDays });
+      const desk = await Offerdesk.open(cfg.dbUrl, {
+        authToken: cfg.dbAuthToken,
+        followUpAfterDays: cfg.followUpAfterDays,
+      });
       const app = buildServer(desk, {
         webRoot: resolve(REPO_ROOT, 'apps/web/dist'),
         logger: true,
@@ -30,6 +34,14 @@ async function main(argv: string[]): Promise<void> {
       await app.listen({ port: cfg.port, host: '127.0.0.1' });
       return;
     }
+    case 'migrate': {
+      // Opening a database migrates it.
+      const cfg = loadConfig();
+      const desk = await Offerdesk.open(cfg.dbUrl, { authToken: cfg.dbAuthToken });
+      desk.close();
+      console.log(`migrated ${describeDb(cfg.dbUrl)}`);
+      return;
+    }
     case 'seed-demo': {
       // Demo data never touches the real database unless explicitly pointed at it.
       const cfg = loadConfig({
@@ -42,8 +54,8 @@ async function main(argv: string[]): Promise<void> {
       for (const suffix of ['', '-wal', '-shm']) {
         if (existsSync(cfg.dbPath + suffix)) rmSync(cfg.dbPath + suffix);
       }
-      const desk = Offerdesk.open(cfg.dbPath);
-      seedDemo(desk);
+      const desk = await Offerdesk.open(cfg.dbPath);
+      await seedDemo(desk);
       desk.close();
       console.log(`seeded demo data into ${cfg.dbPath}`);
       return;
@@ -52,6 +64,11 @@ async function main(argv: string[]): Promise<void> {
       process.stdout.write(USAGE);
       process.exitCode = command ? 1 : 0;
   }
+}
+
+/** A hosted URL without credentials, or the file path. */
+function describeDb(url: string): string {
+  return /^[a-z]+:\/\//.test(url) ? new URL(url).host : url;
 }
 
 main(process.argv.slice(2)).catch((err: unknown) => {

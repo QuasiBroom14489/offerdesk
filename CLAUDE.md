@@ -17,6 +17,7 @@
 - **No personal data in the repo.** `data/`, `config.toml`, `.env*` and PDFs are
   gitignored. Screenshots and fixtures use `pnpm seed:demo` fictional data only.
 - Secrets come from the environment (`ANTHROPIC_API_KEY`), never from config.
-- Node's built-in `node:sqlite` — do not add better-sqlite3.
+- The database is the libSQL client (`@libsql/client`) behind `Db` in `db.ts`:
+  no ORM, no other driver. Every call is async (ADR 0001 amendment).
 - Tests run against `src/` via vitest aliases; `pnpm build` before `pnpm typecheck`.
 - Conventional commits. Record structural decisions as ADRs in `docs/decisions/`.

@@ -35,58 +35,67 @@ export class Connections {
     private readonly now: () => number = Date.now,
   ) {}
 
-  list(): Connection[] {
-    const rows = this.db
-      .prepare('SELECT * FROM connections WHERE workspace_id = ? ORDER BY provider')
-      .all(this.workspaceId) as unknown as ConnectionRow[];
+  async list(): Promise<Connection[]> {
+    const rows = await this.db.all<ConnectionRow>(
+      'SELECT * FROM connections WHERE workspace_id = ? ORDER BY provider',
+      this.workspaceId,
+    );
     return rows.map(fromRow);
   }
 
-  get(provider: Provider): Connection | null {
-    const row = this.db
-      .prepare('SELECT * FROM connections WHERE workspace_id = ? AND provider = ?')
-      .get(this.workspaceId, provider) as ConnectionRow | undefined;
+  async get(provider: Provider): Promise<Connection | null> {
+    const row = await this.db.get<ConnectionRow>(
+      'SELECT * FROM connections WHERE workspace_id = ? AND provider = ?',
+      this.workspaceId,
+      provider,
+    );
     return row ? fromRow(row) : null;
   }
 
   /** Create or update a provider's settings. */
-  upsert(
+  async upsert(
     provider: Provider,
     config: Record<string, unknown>,
     status: ConnectionStatus,
-  ): Connection {
+  ): Promise<Connection> {
     if (!PROVIDERS.includes(provider)) throw new Error(`unknown provider: ${provider}`);
-    this.db
-      .prepare(
-        `INSERT INTO connections (id, workspace_id, provider, status, config, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT (workspace_id, provider)
-         DO UPDATE SET status = excluded.status, config = excluded.config, last_error = NULL`,
-      )
-      .run(randomUUID(), this.workspaceId, provider, status, JSON.stringify(config), this.now());
-    return this.get(provider) as Connection;
+    await this.db.run(
+      `INSERT INTO connections (id, workspace_id, provider, status, config, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (workspace_id, provider)
+       DO UPDATE SET status = excluded.status, config = excluded.config, last_error = NULL`,
+      randomUUID(),
+      this.workspaceId,
+      provider,
+      status,
+      JSON.stringify(config),
+      this.now(),
+    );
+    return (await this.get(provider)) as Connection;
   }
 
-  recordSync(provider: Provider, result: { ok: true } | { ok: false; error: string }): void {
-    this.db
-      .prepare(
-        `UPDATE connections
-         SET status = ?, last_synced_at = CASE WHEN ? THEN ? ELSE last_synced_at END, last_error = ?
-         WHERE workspace_id = ? AND provider = ?`,
-      )
-      .run(
-        result.ok ? 'connected' : 'error',
-        result.ok ? 1 : 0,
-        this.now(),
-        result.ok ? null : result.error,
-        this.workspaceId,
-        provider,
-      );
+  async recordSync(
+    provider: Provider,
+    result: { ok: true } | { ok: false; error: string },
+  ): Promise<void> {
+    await this.db.run(
+      `UPDATE connections
+       SET status = ?, last_synced_at = CASE WHEN ? THEN ? ELSE last_synced_at END, last_error = ?
+       WHERE workspace_id = ? AND provider = ?`,
+      result.ok ? 'connected' : 'error',
+      result.ok ? 1 : 0,
+      this.now(),
+      result.ok ? null : result.error,
+      this.workspaceId,
+      provider,
+    );
   }
 
-  remove(provider: Provider): void {
-    this.db
-      .prepare('DELETE FROM connections WHERE workspace_id = ? AND provider = ?')
-      .run(this.workspaceId, provider);
+  async remove(provider: Provider): Promise<void> {
+    await this.db.run(
+      'DELETE FROM connections WHERE workspace_id = ? AND provider = ?',
+      this.workspaceId,
+      provider,
+    );
   }
 }

@@ -83,7 +83,7 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
   app.get('/api/applications', async () => desk.listApplications());
 
   app.post('/api/applications', async (req, reply) => {
-    const app = desk.addApplication(NewApplication.parse(req.body));
+    const app = await desk.addApplication(NewApplication.parse(req.body));
     return reply.status(201).send(app);
   });
 
@@ -111,14 +111,14 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
 
   /** A posting read off a page. 201 when added, 200 with `duplicate: true` when already tracked. */
   app.post('/api/capture', async (req, reply) => {
-    const result = desk.capturePosting(CapturePosting.parse(req.body));
+    const result = await desk.capturePosting(CapturePosting.parse(req.body));
     return reply.status(result.duplicate ? 200 : 201).send(result);
   });
 
   app.post('/api/applications/:id/notes', async (req, reply) => {
     const { id } = IdParams.parse(req.params);
     const { text } = z.object({ text: z.string().min(1) }).parse(req.body);
-    return reply.status(201).send(desk.addNote(id, text));
+    return reply.status(201).send(await desk.addNote(id, text));
   });
 
   app.post('/api/applications/:id/interviews', async (req, reply) => {
@@ -126,14 +126,14 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
     const body = z
       .object({ at: z.number(), round: z.string().optional(), location: z.string().optional() })
       .parse(req.body);
-    return reply.status(201).send(desk.scheduleInterview(id, body));
+    return reply.status(201).send(await desk.scheduleInterview(id, body));
   });
 
   // ── contacts & outreach ───────────────────────────────────────────────────
   app.get('/api/contacts', async () => desk.listContacts());
 
   app.post('/api/contacts', async (req, reply) => {
-    return reply.status(201).send(desk.addContact(NewContact.parse(req.body)));
+    return reply.status(201).send(await desk.addContact(NewContact.parse(req.body)));
   });
 
   app.get('/api/contacts/:id', async (req) => {
@@ -142,18 +142,18 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
   });
 
   app.post('/api/outreach', async (req, reply) => {
-    return reply.status(201).send(desk.logOutreach(OutreachBody.parse(req.body)));
+    return reply.status(201).send(await desk.logOutreach(OutreachBody.parse(req.body)));
   });
 
   app.post('/api/responses', async (req, reply) => {
-    return reply.status(201).send(desk.logResponse(ResponseBody.parse(req.body)));
+    return reply.status(201).send(await desk.logResponse(ResponseBody.parse(req.body)));
   });
 
   // ── views, reports & exports ──────────────────────────────────────────────
   app.get('/api/views', async () => desk.views.list());
 
   app.post('/api/views', async (req, reply) => {
-    return reply.status(201).send(desk.views.create(NewView.parse(req.body)));
+    return reply.status(201).send(await desk.views.create(NewView.parse(req.body)));
   });
 
   app.patch('/api/views/:id', async (req) => {
@@ -163,7 +163,7 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
 
   app.delete('/api/views/:id', async (req, reply) => {
     const { id } = IdParams.parse(req.params);
-    desk.views.remove(id);
+    await desk.views.remove(id);
     return reply.status(204).send();
   });
 
@@ -179,8 +179,8 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
     const input = { viewId: view, spec };
     return reply
       .header('content-type', 'text/csv; charset=utf-8')
-      .header('content-disposition', attachment(exportName(desk, input), 'csv'))
-      .send(desk.exportCsv(input));
+      .header('content-disposition', attachment(await exportName(desk, input), 'csv'))
+      .send(await desk.exportCsv(input));
   });
 
   app.get('/api/export.xlsx', async (req, reply) => {
@@ -188,7 +188,7 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
     const input = { viewId: view, spec };
     return reply
       .header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      .header('content-disposition', attachment(exportName(desk, input), 'xlsx'))
+      .header('content-disposition', attachment(await exportName(desk, input), 'xlsx'))
       .send(await desk.exportXlsx(input));
   });
 
@@ -206,9 +206,12 @@ export function buildServer(desk: Offerdesk, opts: ServerOptions = {}): FastifyI
 }
 
 /** `offerdesk-waiting-to-hear-2026-10-01` */
-function exportName(desk: Offerdesk, input: { viewId?: string; spec?: unknown }): string {
+async function exportName(
+  desk: Offerdesk,
+  input: { viewId?: string; spec?: unknown },
+): Promise<string> {
   const name = input.viewId
-    ? desk.views.get(input.viewId).name
+    ? (await desk.views.get(input.viewId)).name
     : input.spec
       ? 'applications'
       : 'everything';

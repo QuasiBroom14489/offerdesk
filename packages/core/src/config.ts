@@ -27,7 +27,12 @@ const ConfigFile = z.object({
 
 export interface OfferdeskConfig {
   dataDir: string;
+  /** The local database file (used when no hosted database is configured). */
   dbPath: string;
+  /** What to open: a file path, or a hosted `libsql://` URL (ADR 0005). */
+  dbUrl: string;
+  /** Token for a hosted database. From the environment only, never config. */
+  dbAuthToken: string | undefined;
   filesDir: string;
   vaultRoot: string | null;
   vaultApplicationsDir: string;
@@ -37,9 +42,12 @@ export interface OfferdeskConfig {
 
 /**
  * Load `config.toml` from the repo root (or `$OFFERDESK_CONFIG`). Every field
- * has a default, so a fresh clone runs with no config at all. `$OFFERDESK_DB`
- * overrides the database path — the demo scripts use it to stay away from
- * real data.
+ * has a default, so a fresh clone runs with no config at all.
+ *
+ * The database is, in order: `$OFFERDESK_DB` (a local file; the demo scripts
+ * use it to stay away from real data), `$OFFERDESK_DB_URL` or
+ * `$TURSO_DATABASE_URL` (hosted, with `$TURSO_AUTH_TOKEN`), else
+ * `data/offerdesk.db`.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): OfferdeskConfig {
   const file = env.OFFERDESK_CONFIG ?? resolve(REPO_ROOT, 'config.toml');
@@ -47,9 +55,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OfferdeskConfi
   const cfg = ConfigFile.parse(raw);
   const fromRoot = (p: string) => (isAbsolute(p) ? p : resolve(REPO_ROOT, p));
   const dataDir = fromRoot(cfg.paths.data_dir);
+  const dbPath = env.OFFERDESK_DB ? fromRoot(env.OFFERDESK_DB) : resolve(dataDir, 'offerdesk.db');
+  const hosted = env.OFFERDESK_DB ? undefined : (env.OFFERDESK_DB_URL ?? env.TURSO_DATABASE_URL);
   return {
     dataDir,
-    dbPath: env.OFFERDESK_DB ? fromRoot(env.OFFERDESK_DB) : resolve(dataDir, 'offerdesk.db'),
+    dbPath,
+    dbUrl: hosted ?? dbPath,
+    dbAuthToken: hosted ? env.TURSO_AUTH_TOKEN : undefined,
     filesDir: resolve(dataDir, 'files'),
     vaultRoot: cfg.paths.vault_root ? fromRoot(cfg.paths.vault_root) : null,
     vaultApplicationsDir: cfg.paths.vault_applications_dir,

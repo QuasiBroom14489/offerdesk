@@ -14,6 +14,7 @@ import {
   type FollowUp,
   NewApplication,
   NewContact,
+  type PipelineStats,
   type Report,
   type Status,
   ViewSpec,
@@ -21,7 +22,7 @@ import {
 } from '@offerdesk/shared';
 import { Connections } from './connectors/connections.js';
 import { isoDate } from './dates.js';
-import { type Db, openDb, transaction } from './db.js';
+import { type Db, openDb } from './db.js';
 import { foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
 import { NotFoundError } from './errors.js';
 import { EventLog } from './events.js';
@@ -72,6 +73,18 @@ export interface ReportInput {
 }
 
 /**
+ * One workspace's whole state, read in three queries. Every read model is
+ * derived from this in memory, so a request costs a fixed number of round
+ * trips however many applications there are (it matters against a hosted
+ * database, ADR 0005).
+ */
+interface Snapshot {
+  events: AnyEvent[];
+  applications: Application[];
+  contacts: Contact[];
+}
+
+/**
  * The application service. The HTTP server, the MCP server and the CLI are all
  * thin shells over this class — nothing that decides or remembers lives in them.
  */
@@ -95,8 +108,12 @@ export class Offerdesk {
     this.views = new Views(db, this.workspaceId, this.now);
   }
 
-  static open(path: string, opts?: OfferdeskOptions): Offerdesk {
-    return new Offerdesk(openDb(path), opts);
+  /** Open a file path, `:memory:`, or a `libsql://` URL (with its token). */
+  static async open(
+    location: string,
+    opts?: OfferdeskOptions & { authToken?: string },
+  ): Promise<Offerdesk> {
+    return new Offerdesk(await openDb(location, opts?.authToken), opts);
   }
 
   close(): void {
@@ -106,46 +123,52 @@ export class Offerdesk {
   // ── companies ────────────────────────────────────────────────────────────
 
   /** Find a company by name (case-insensitive) or create it. */
-  private companyId(name: string, at: number): string {
+  private async companyId(name: string, at: number): Promise<string> {
     const trimmed = name.trim();
-    const existing = this.db
-      .prepare('SELECT id FROM companies WHERE workspace_id = ? AND name = ?')
-      .get(this.workspaceId, trimmed) as { id: string } | undefined;
+    const existing = await this.db.get<{ id: string }>(
+      'SELECT id FROM companies WHERE workspace_id = ? AND name = ?',
+      this.workspaceId,
+      trimmed,
+    );
     if (existing) return existing.id;
     const id = randomUUID();
-    this.db
-      .prepare('INSERT INTO companies (id, workspace_id, name, created_at) VALUES (?, ?, ?, ?)')
-      .run(id, this.workspaceId, trimmed, at);
+    await this.db.run(
+      'INSERT INTO companies (id, workspace_id, name, created_at) VALUES (?, ?, ?, ?)',
+      id,
+      this.workspaceId,
+      trimmed,
+      at,
+    );
     return id;
   }
 
   // ── applications ─────────────────────────────────────────────────────────
 
-  addApplication(input: NewApplication, opts: { source?: EventSource } = {}): Application {
+  async addApplication(
+    input: NewApplication,
+    opts: { source?: EventSource } = {},
+  ): Promise<Application> {
     const a = NewApplication.parse(input);
     const at = a.at ?? this.now();
     const id = randomUUID();
-    transaction(this.db, () => {
-      const companyId = this.companyId(a.company, at);
-      this.db
-        .prepare(
-          `INSERT INTO applications
-             (id, workspace_id, company_id, role, posting_url, location, season, deadline, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          id,
-          this.workspaceId,
-          companyId,
-          a.role,
-          a.postingUrl ?? null,
-          a.location ?? null,
-          a.season ?? null,
-          a.deadline ?? null,
-          a.source ?? null,
-          at,
-        );
-      this.events.append({
+    await this.db.transaction(async () => {
+      const companyId = await this.companyId(a.company, at);
+      await this.db.run(
+        `INSERT INTO applications
+           (id, workspace_id, company_id, role, posting_url, location, season, deadline, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        this.workspaceId,
+        companyId,
+        a.role,
+        a.postingUrl ?? null,
+        a.location ?? null,
+        a.season ?? null,
+        a.deadline ?? null,
+        a.source ?? null,
+        at,
+      );
+      await this.events.append({
         kind: 'application.created',
         applicationId: id,
         payload: { status: a.status },
@@ -161,14 +184,16 @@ export class Offerdesk {
    * other capture. Returns the existing application instead of a duplicate
    * when the posting URL, or the company and role, are already tracked.
    */
-  capturePosting(input: CapturePosting): { application: Application; duplicate: boolean } {
+  async capturePosting(
+    input: CapturePosting,
+  ): Promise<{ application: Application; duplicate: boolean }> {
     const c = CapturePosting.parse(input);
-    const existing = this.findExisting(c.company, c.role, c.postingUrl ?? null);
-    if (existing) return { application: existing, duplicate: true };
+    return this.db.transaction(async () => {
+      const existing = await this.findExisting(c.company, c.role, c.postingUrl ?? null);
+      if (existing) return { application: existing, duplicate: true };
 
-    const at = this.now();
-    const application = transaction(this.db, () => {
-      const app = this.addApplication(
+      const at = this.now();
+      const app = await this.addApplication(
         {
           company: c.company,
           role: c.role,
@@ -182,7 +207,7 @@ export class Offerdesk {
         { source: c.capturedBy },
       );
       if (c.postingText || c.pay || c.postingUrl) {
-        this.events.append({
+        await this.events.append({
           kind: 'posting.captured',
           applicationId: app.id,
           payload: {
@@ -195,7 +220,7 @@ export class Offerdesk {
         });
       }
       if (c.flagToStart) {
-        this.events.append({
+        await this.events.append({
           kind: 'application.flagged',
           applicationId: app.id,
           payload: { flag: 'start', reason: c.source ? `Captured from ${c.source}` : undefined },
@@ -203,15 +228,14 @@ export class Offerdesk {
           source: c.capturedBy,
         });
       }
-      return app;
+      return { application: await this.getApplication(app.id), duplicate: false };
     });
-    return { application: this.getApplication(application.id), duplicate: false };
   }
 
-  flag(id: string, flag: Flag, reason?: string): Application {
-    const app = this.getApplication(id);
+  async flag(id: string, flag: Flag, reason?: string): Promise<Application> {
+    const app = await this.getApplication(id);
     if (!app.flags.includes(flag)) {
-      this.events.append({
+      await this.events.append({
         kind: 'application.flagged',
         applicationId: id,
         payload: { flag, reason },
@@ -221,10 +245,10 @@ export class Offerdesk {
     return this.getApplication(id);
   }
 
-  unflag(id: string, flag: Flag): Application {
-    const app = this.getApplication(id);
+  async unflag(id: string, flag: Flag): Promise<Application> {
+    const app = await this.getApplication(id);
     if (app.flags.includes(flag)) {
-      this.events.append({
+      await this.events.append({
         kind: 'application.unflagged',
         applicationId: id,
         payload: { flag },
@@ -235,19 +259,16 @@ export class Offerdesk {
   }
 
   /** Flagged "get started": soonest deadline first, undated ones after, newest first. */
-  toStart(): Application[] {
-    return this.listApplications()
-      .filter((a) => a.flags.includes('start'))
-      .sort((a, b) => {
-        if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
-        if (a.deadline) return -1;
-        if (b.deadline) return 1;
-        return b.createdAt - a.createdAt;
-      });
+  async toStart(): Promise<Application[]> {
+    return toStartOf(await this.listApplications());
   }
 
-  private findExisting(company: string, role: string, url: string | null): Application | null {
-    const apps = this.listApplications();
+  private async findExisting(
+    company: string,
+    role: string,
+    url: string | null,
+  ): Promise<Application | null> {
+    const apps = await this.listApplications();
     if (url) {
       const key = normalizeUrl(url);
       const byUrl = apps.find((a) => a.postingUrl && normalizeUrl(a.postingUrl) === key);
@@ -257,7 +278,7 @@ export class Offerdesk {
     return apps.find((a) => same(a.companyName, company) && same(a.role, role)) ?? null;
   }
 
-  updateApplication(id: string, patch: ApplicationPatch): Application {
+  async updateApplication(id: string, patch: ApplicationPatch): Promise<Application> {
     const p = ApplicationPatch.parse(patch);
     const columns: Record<keyof typeof p, string> = {
       role: 'role',
@@ -274,42 +295,41 @@ export class Offerdesk {
       sets.push(`${col} = ?`);
       values.push(p[key] ?? null);
     }
-    this.requireApplication(id);
+    await this.requireApplication(id);
     if (sets.length > 0) {
-      this.db
-        .prepare(`UPDATE applications SET ${sets.join(', ')} WHERE id = ? AND workspace_id = ?`)
-        .run(...values, id, this.workspaceId);
+      await this.db.run(
+        `UPDATE applications SET ${sets.join(', ')} WHERE id = ? AND workspace_id = ?`,
+        ...values,
+        id,
+        this.workspaceId,
+      );
     }
     return this.getApplication(id);
   }
 
-  listApplications(): Application[] {
-    const rows = this.db
-      .prepare(`${APPLICATION_SELECT} ORDER BY a.created_at DESC`)
-      .all(this.workspaceId) as unknown as ApplicationRow[];
-    const byApp = groupBy(this.events.all(), (e) => e.applicationId);
-    return rows.map((row) => toApplication(row, byApp.get(row.id) ?? []));
+  async listApplications(): Promise<Application[]> {
+    return (await this.snapshot()).applications;
   }
 
-  getApplication(id: string): Application {
-    const row = this.requireApplication(id);
-    return toApplication(row, this.events.forApplication(id));
+  async getApplication(id: string): Promise<Application> {
+    const row = await this.requireApplication(id);
+    return toApplication(row, await this.events.forApplication(id));
   }
 
-  getApplicationDetail(id: string): ApplicationDetail {
-    const row = this.requireApplication(id);
-    const timeline = this.events.forApplication(id);
+  async getApplicationDetail(id: string): Promise<ApplicationDetail> {
+    const row = await this.requireApplication(id);
+    const timeline = await this.events.forApplication(id);
     const contactIds = new Set(timeline.map((e) => e.contactId).filter((c): c is string => !!c));
-    const companyContacts = this.listContacts().filter(
+    const companyContacts = (await this.listContacts()).filter(
       (c) => c.companyId === row.company_id || contactIds.has(c.id),
     );
     return { ...toApplication(row, timeline), timeline, contacts: companyContacts };
   }
 
-  setStatus(id: string, to: Status, at?: number): Application {
-    const current = this.getApplication(id);
+  async setStatus(id: string, to: Status, at?: number): Promise<Application> {
+    const current = await this.getApplication(id);
     if (current.status !== to) {
-      this.events.append({
+      await this.events.append({
         kind: 'status.changed',
         applicationId: id,
         payload: { from: current.status, to },
@@ -319,166 +339,161 @@ export class Offerdesk {
     return this.getApplication(id);
   }
 
-  addNote(applicationId: string, text: string, at?: number): AnyEvent {
-    this.requireApplication(applicationId);
-    return this.events.append({
+  async addNote(applicationId: string, text: string, at?: number): Promise<AnyEvent> {
+    await this.requireApplication(applicationId);
+    return (await this.events.append({
       kind: 'note.added',
       applicationId,
       payload: { text },
       ts: at ?? this.now(),
-    }) as AnyEvent;
+    })) as AnyEvent;
   }
 
-  scheduleInterview(
+  async scheduleInterview(
     applicationId: string,
     payload: EventPayload<'interview.scheduled'>,
     at?: number,
-  ): AnyEvent {
-    this.requireApplication(applicationId);
-    return this.events.append({
+  ): Promise<AnyEvent> {
+    await this.requireApplication(applicationId);
+    return (await this.events.append({
       kind: 'interview.scheduled',
       applicationId,
       payload,
       ts: at ?? this.now(),
-    }) as AnyEvent;
+    })) as AnyEvent;
   }
 
   /** Applications with a deadline in the next `days` days that are still only saved. */
-  upcomingDeadlines(days = 14): Application[] {
-    const today = isoDate(this.now());
-    const until = isoDate(this.now() + days * 86_400_000);
-    return this.listApplications()
-      .filter(
-        (a) => a.deadline && a.deadline >= today && a.deadline <= until && a.status === 'saved',
-      )
-      .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? ''));
+  async upcomingDeadlines(days = 14): Promise<Application[]> {
+    return this.deadlinesOf(await this.listApplications(), days);
   }
 
   // ── contacts & outreach ──────────────────────────────────────────────────
 
-  addContact(input: NewContact): Contact {
+  async addContact(input: NewContact): Promise<Contact> {
     const c = NewContact.parse(input);
     const at = this.now();
     const id = randomUUID();
-    transaction(this.db, () => {
-      const companyId = c.company ? this.companyId(c.company, at) : null;
-      this.db
-        .prepare(
-          `INSERT INTO contacts
-             (id, workspace_id, company_id, name, title, email, linkedin, how_met, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          id,
-          this.workspaceId,
-          companyId,
-          c.name,
-          c.title ?? null,
-          c.email ?? null,
-          c.linkedin ?? null,
-          c.howMet ?? null,
-          at,
-        );
+    await this.db.transaction(async () => {
+      const companyId = c.company ? await this.companyId(c.company, at) : null;
+      await this.db.run(
+        `INSERT INTO contacts
+           (id, workspace_id, company_id, name, title, email, linkedin, how_met, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        this.workspaceId,
+        companyId,
+        c.name,
+        c.title ?? null,
+        c.email ?? null,
+        c.linkedin ?? null,
+        c.howMet ?? null,
+        at,
+      );
     });
     return this.getContact(id);
   }
 
-  listContacts(): Contact[] {
-    const rows = this.db
-      .prepare(`${CONTACT_SELECT} ORDER BY c.name`)
-      .all(this.workspaceId) as unknown as ContactRow[];
-    const byContact = groupBy(this.events.all(), (e) => e.contactId);
-    return rows.map((row) => toContact(row, byContact.get(row.id) ?? []));
+  async listContacts(): Promise<Contact[]> {
+    return (await this.snapshot()).contacts;
   }
 
-  getContactDetail(id: string): ContactDetail {
-    return { ...this.getContact(id), timeline: this.events.forContact(id) };
+  async getContactDetail(id: string): Promise<ContactDetail> {
+    return { ...(await this.getContact(id)), timeline: await this.events.forContact(id) };
   }
 
-  getContact(id: string): Contact {
-    const row = this.db.prepare(`${CONTACT_SELECT} AND c.id = ?`).get(this.workspaceId, id) as
-      | ContactRow
-      | undefined;
+  async getContact(id: string): Promise<Contact> {
+    const row = await this.db.get<ContactRow>(
+      `${CONTACT_SELECT} AND c.id = ?`,
+      this.workspaceId,
+      id,
+    );
     if (!row) throw new NotFoundError('contact', id);
-    return toContact(row, this.events.forContact(id));
+    return toContact(row, await this.events.forContact(id));
   }
 
-  logOutreach(input: {
+  async logOutreach(input: {
     contactId?: string | null;
     applicationId?: string | null;
     channel: EventPayload<'outreach.sent'>['channel'];
     summary?: string;
     at?: number;
-  }): AnyEvent {
-    this.assertTarget(input);
-    return this.events.append({
+  }): Promise<AnyEvent> {
+    await this.assertTarget(input);
+    return (await this.events.append({
       kind: 'outreach.sent',
       contactId: input.contactId ?? null,
       applicationId: input.applicationId ?? null,
       payload: { channel: input.channel, summary: input.summary },
       ts: input.at ?? this.now(),
-    }) as AnyEvent;
+    })) as AnyEvent;
   }
 
-  logResponse(input: {
+  async logResponse(input: {
     contactId?: string | null;
     applicationId?: string | null;
     channel: EventPayload<'response.received'>['channel'];
     summary?: string;
     at?: number;
-  }): AnyEvent {
-    this.assertTarget(input);
-    return this.events.append({
+  }): Promise<AnyEvent> {
+    await this.assertTarget(input);
+    return (await this.events.append({
       kind: 'response.received',
       contactId: input.contactId ?? null,
       applicationId: input.applicationId ?? null,
       payload: { channel: input.channel, summary: input.summary },
       ts: input.at ?? this.now(),
-    }) as AnyEvent;
+    })) as AnyEvent;
   }
 
   // ── dashboard reads ──────────────────────────────────────────────────────
 
-  followUps(): FollowUp[] {
-    return followUpsDue(this.events.all(), { now: this.now(), afterDays: this.followUpAfterDays });
+  async followUps(): Promise<FollowUp[]> {
+    return this.followUpsOf(await this.events.all());
   }
 
-  stats() {
-    const byApp = groupBy(this.events.all(), (e) => e.applicationId);
-    return pipelineStats([...byApp.values()].map(foldApplication));
+  async stats(): Promise<PipelineStats> {
+    return statsOf(await this.events.all());
   }
 
-  recentActivity(limit = 20): AnyEvent[] {
+  recentActivity(limit = 20): Promise<AnyEvent[]> {
     return this.events.recent(limit);
   }
 
-  /** Everything the home screen needs, resolved to display names in one call. */
-  dashboard(opts: { deadlineDays?: number; recentLimit?: number } = {}): Dashboard {
-    const apps = new Map(this.listApplications().map((a) => [a.id, a]));
-    const contacts = new Map(this.listContacts().map((c) => [c.id, c]));
+  /** Everything the home screen needs, resolved to display names, from one snapshot. */
+  async dashboard(opts: { deadlineDays?: number; recentLimit?: number } = {}): Promise<Dashboard> {
+    const { events, applications, contacts } = await this.snapshot();
+    const apps = new Map(applications.map((a) => [a.id, a]));
+    const people = new Map(contacts.map((c) => [c.id, c]));
     const appRef = (id: string | null) => {
       const a = id ? apps.get(id) : undefined;
       return a ? { id: a.id, label: `${a.companyName} — ${a.role}` } : null;
     };
     const contactRef = (id: string | null) => {
-      const c = id ? contacts.get(id) : undefined;
+      const c = id ? people.get(id) : undefined;
       return c ? { id: c.id, name: c.name, companyName: c.companyName } : null;
     };
-    const toStart = this.toStart();
+    const toStart = toStartOf(applications);
     const flagged = new Set(toStart.map((a) => a.id));
+    const recentLimit = opts.recentLimit ?? 15;
+    // Newest first, the same order as EventLog.recent().
+    const recent = [...events].sort((a, b) => b.ts - a.ts || b.seq - a.seq);
     return {
-      stats: this.stats(),
+      stats: statsOf(events),
       toStart,
-      followUps: this.followUps().map((f) => ({
+      followUps: this.followUpsOf(events).map((f) => ({
         ...f,
         application: appRef(f.applicationId),
         contact: contactRef(f.contactId),
       })),
       // Flagged postings already show their deadline under "Get started".
-      deadlines: this.upcomingDeadlines(opts.deadlineDays ?? 14).filter((a) => !flagged.has(a.id)),
-      recent: this.recentActivity((opts.recentLimit ?? 15) + 10)
+      deadlines: this.deadlinesOf(applications, opts.deadlineDays ?? 14).filter(
+        (a) => !flagged.has(a.id),
+      ),
+      recent: recent
+        .slice(0, recentLimit + 10)
         .filter((e, _i, all) => !isCaptureDetail(e, all))
-        .slice(0, opts.recentLimit ?? 15)
+        .slice(0, recentLimit)
         .map((event) => {
           const c = contactRef(event.contactId);
           return {
@@ -493,12 +508,12 @@ export class Offerdesk {
   // ── reports & exports ────────────────────────────────────────────────────
 
   /** Rows for a table view. Exports render this same object, so they match the screen. */
-  report(input: ReportInput = {}): Report {
+  async report(input: ReportInput = {}): Promise<Report> {
     const view =
-      input.viewId || !input.spec ? this.views.get(input.viewId ?? DEFAULT_VIEW_ID) : null;
+      input.viewId || !input.spec ? await this.views.get(input.viewId ?? DEFAULT_VIEW_ID) : null;
     const spec = input.spec ? ViewSpec.parse(input.spec) : (view as NonNullable<typeof view>).spec;
     const now = this.now();
-    const { columns, rows } = runView(spec, this.reportFacts(now), now);
+    const { columns, rows } = runView(spec, reportFacts(await this.snapshot(), now), now);
     return {
       view: view ? { id: view.id, name: view.name, builtIn: view.builtIn } : null,
       spec,
@@ -508,45 +523,67 @@ export class Offerdesk {
     };
   }
 
-  exportCsv(input: ReportInput = {}): string {
-    return toCsv(this.report(input));
+  async exportCsv(input: ReportInput = {}): Promise<string> {
+    return toCsv(await this.report(input));
   }
 
-  exportXlsx(input: ReportInput = {}): Promise<Buffer> {
-    return toXlsx(this.report(input));
-  }
-
-  private reportFacts(now: number): RowFacts[] {
-    const events = this.events.all();
-    const byApp = groupBy(events, (e) => e.applicationId);
-    const byContact = groupBy(events, (e) => e.contactId);
-    const contacts = this.listContacts();
-    return this.listApplications().map((app) => {
-      const evs = byApp.get(app.id) ?? [];
-      // Same people as the application page: everyone at the company, plus anyone it mentions.
-      const linked = new Set(evs.map((e) => e.contactId));
-      const people = contacts.filter((c) => c.companyId === app.companyId || linked.has(c.id));
-      const peopleEvents = people.flatMap((p) => byContact.get(p.id) ?? []);
-      return rowFacts(app, evs, people, peopleEvents, now);
-    });
+  async exportXlsx(input: ReportInput = {}): Promise<Buffer> {
+    return toXlsx(await this.report(input));
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
-  private requireApplication(id: string): ApplicationRow {
-    const row = this.db.prepare(`${APPLICATION_SELECT} AND a.id = ?`).get(this.workspaceId, id) as
-      | ApplicationRow
-      | undefined;
+  private async snapshot(): Promise<Snapshot> {
+    const [appRows, contactRows, events] = await Promise.all([
+      this.db.all<ApplicationRow>(
+        `${APPLICATION_SELECT} ORDER BY a.created_at DESC`,
+        this.workspaceId,
+      ),
+      this.db.all<ContactRow>(`${CONTACT_SELECT} ORDER BY c.name`, this.workspaceId),
+      this.events.all(),
+    ]);
+    const byApp = groupBy(events, (e) => e.applicationId);
+    const byContact = groupBy(events, (e) => e.contactId);
+    return {
+      events,
+      applications: appRows.map((row) => toApplication(row, byApp.get(row.id) ?? [])),
+      contacts: contactRows.map((row) => toContact(row, byContact.get(row.id) ?? [])),
+    };
+  }
+
+  private followUpsOf(events: readonly AnyEvent[]): FollowUp[] {
+    return followUpsDue(events, { now: this.now(), afterDays: this.followUpAfterDays });
+  }
+
+  private deadlinesOf(apps: readonly Application[], days: number): Application[] {
+    const today = isoDate(this.now());
+    const until = isoDate(this.now() + days * 86_400_000);
+    return apps
+      .filter(
+        (a) => a.deadline && a.deadline >= today && a.deadline <= until && a.status === 'saved',
+      )
+      .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? ''));
+  }
+
+  private async requireApplication(id: string): Promise<ApplicationRow> {
+    const row = await this.db.get<ApplicationRow>(
+      `${APPLICATION_SELECT} AND a.id = ?`,
+      this.workspaceId,
+      id,
+    );
     if (!row) throw new NotFoundError('application', id);
     return row;
   }
 
-  private assertTarget(input: { contactId?: string | null; applicationId?: string | null }): void {
+  private async assertTarget(input: {
+    contactId?: string | null;
+    applicationId?: string | null;
+  }): Promise<void> {
     if (!input.contactId && !input.applicationId) {
       throw new Error('outreach and responses need a contactId, an applicationId, or both');
     }
-    if (input.contactId) this.getContact(input.contactId);
-    if (input.applicationId) this.requireApplication(input.applicationId);
+    if (input.contactId) await this.getContact(input.contactId);
+    if (input.applicationId) await this.requireApplication(input.applicationId);
   }
 }
 
@@ -559,6 +596,35 @@ const CONTACT_SELECT = `
   SELECT c.*, co.name AS company_name
   FROM contacts c LEFT JOIN companies co ON co.id = c.company_id
   WHERE c.workspace_id = ?`;
+
+function statsOf(events: readonly AnyEvent[]): PipelineStats {
+  const byApp = groupBy(events, (e) => e.applicationId);
+  return pipelineStats([...byApp.values()].map(foldApplication));
+}
+
+function toStartOf(apps: readonly Application[]): Application[] {
+  return apps
+    .filter((a) => a.flags.includes('start'))
+    .sort((a, b) => {
+      if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
+      if (a.deadline) return -1;
+      if (b.deadline) return 1;
+      return b.createdAt - a.createdAt;
+    });
+}
+
+function reportFacts({ events, applications, contacts }: Snapshot, now: number): RowFacts[] {
+  const byApp = groupBy(events, (e) => e.applicationId);
+  const byContact = groupBy(events, (e) => e.contactId);
+  return applications.map((app) => {
+    const evs = byApp.get(app.id) ?? [];
+    // Same people as the application page: everyone at the company, plus anyone it mentions.
+    const linked = new Set(evs.map((e) => e.contactId));
+    const people = contacts.filter((c) => c.companyId === app.companyId || linked.has(c.id));
+    const peopleEvents = people.flatMap((p) => byContact.get(p.id) ?? []);
+    return rowFacts(app, evs, people, peopleEvents, now);
+  });
+}
 
 function toApplication(row: ApplicationRow, events: readonly AnyEvent[]): Application {
   const h = foldApplication(events);

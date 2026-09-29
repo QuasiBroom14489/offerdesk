@@ -36,73 +36,77 @@ export class Views {
     private readonly now: () => number = Date.now,
   ) {}
 
-  list(): SavedView[] {
-    const rows = this.db
-      .prepare('SELECT * FROM views WHERE workspace_id = ? ORDER BY name')
-      .all(this.workspaceId) as unknown as ViewRow[];
+  async list(): Promise<SavedView[]> {
+    const rows = await this.db.all<ViewRow>(
+      'SELECT * FROM views WHERE workspace_id = ? ORDER BY name',
+      this.workspaceId,
+    );
     return [...PRESET_VIEWS, ...rows.map(fromRow)];
   }
 
-  get(id: string): SavedView {
+  async get(id: string): Promise<SavedView> {
     const preset = PRESET_VIEWS.find((v) => v.id === id);
     if (preset) return preset;
-    const row = this.db
-      .prepare('SELECT * FROM views WHERE workspace_id = ? AND id = ?')
-      .get(this.workspaceId, id) as ViewRow | undefined;
+    const row = await this.db.get<ViewRow>(
+      'SELECT * FROM views WHERE workspace_id = ? AND id = ?',
+      this.workspaceId,
+      id,
+    );
     if (!row) throw new NotFoundError('view', id);
     return fromRow(row);
   }
 
-  create(input: NewView): SavedView {
+  async create(input: NewView): Promise<SavedView> {
     const v = NewView.parse(input);
-    this.assertNameFree(v.name);
+    await this.assertNameFree(v.name);
     const id = randomUUID();
     const at = this.now();
-    this.db
-      .prepare(
-        `INSERT INTO views (id, workspace_id, name, spec, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(id, this.workspaceId, v.name, JSON.stringify(v.spec), at, at);
+    await this.db.run(
+      `INSERT INTO views (id, workspace_id, name, spec, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      this.workspaceId,
+      v.name,
+      JSON.stringify(v.spec),
+      at,
+      at,
+    );
     return this.get(id);
   }
 
-  update(id: string, patch: ViewPatch): SavedView {
+  async update(id: string, patch: ViewPatch): Promise<SavedView> {
     const p = ViewPatch.parse(patch);
-    const current = this.editable(id);
+    const current = await this.editable(id);
     if (p.name !== undefined && p.name.toLowerCase() !== current.name.toLowerCase()) {
-      this.assertNameFree(p.name);
+      await this.assertNameFree(p.name);
     }
-    this.db
-      .prepare(
-        `UPDATE views SET name = ?, spec = ?, updated_at = ?
-         WHERE workspace_id = ? AND id = ?`,
-      )
-      .run(
-        p.name ?? current.name,
-        JSON.stringify(p.spec ?? current.spec),
-        this.now(),
-        this.workspaceId,
-        id,
-      );
+    await this.db.run(
+      `UPDATE views SET name = ?, spec = ?, updated_at = ?
+       WHERE workspace_id = ? AND id = ?`,
+      p.name ?? current.name,
+      JSON.stringify(p.spec ?? current.spec),
+      this.now(),
+      this.workspaceId,
+      id,
+    );
     return this.get(id);
   }
 
-  remove(id: string): void {
-    this.editable(id);
-    this.db
-      .prepare('DELETE FROM views WHERE workspace_id = ? AND id = ?')
-      .run(this.workspaceId, id);
+  async remove(id: string): Promise<void> {
+    await this.editable(id);
+    await this.db.run('DELETE FROM views WHERE workspace_id = ? AND id = ?', this.workspaceId, id);
   }
 
-  private editable(id: string): SavedView {
-    const view = this.get(id);
+  private async editable(id: string): Promise<SavedView> {
+    const view = await this.get(id);
     if (view.builtIn) throw new ConflictError(`"${view.name}" is built in; save a copy instead`);
     return view;
   }
 
-  private assertNameFree(name: string): void {
-    const taken = this.list().some((v) => v.name.toLowerCase() === name.trim().toLowerCase());
+  private async assertNameFree(name: string): Promise<void> {
+    const taken = (await this.list()).some(
+      (v) => v.name.toLowerCase() === name.trim().toLowerCase(),
+    );
     if (taken) throw new ConflictError(`a view named "${name.trim()}" already exists`);
   }
 }

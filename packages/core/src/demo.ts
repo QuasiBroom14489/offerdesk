@@ -132,12 +132,12 @@ const APPS: DemoApp[] = [
   },
 ];
 
-export function seedDemo(desk: Offerdesk, now: number = Date.now()): void {
+export async function seedDemo(desk: Offerdesk, now: number = Date.now()): Promise<void> {
   const ago = (days: number) => now - days * DAY;
   const ids = new Map<string, string>();
 
   for (const a of APPS) {
-    const app = desk.addApplication({
+    const app = await desk.addApplication({
       company: a.company,
       role: a.role,
       location: a.location,
@@ -147,108 +147,108 @@ export function seedDemo(desk: Offerdesk, now: number = Date.now()): void {
       at: ago(a.savedDaysAgo),
     });
     ids.set(a.company, app.id);
-    for (const [daysAgo, status] of a.path) desk.setStatus(app.id, status, ago(daysAgo));
+    for (const [daysAgo, status] of a.path) await desk.setStatus(app.id, status, ago(daysAgo));
   }
 
   const id = (company: string) => ids.get(company) as string;
 
-  const priya = desk.addContact({
+  const priya = await desk.addContact({
     name: 'Priya Raman',
     company: 'Northwind Analytics',
     title: 'University Recruiter',
     howMet: 'Career fair booth',
   });
-  const marcus = desk.addContact({
+  const marcus = await desk.addContact({
     name: 'Marcus Webb',
     company: 'Kestrel Health',
     title: 'Senior Data Analyst',
     howMet: 'Alumni network',
   });
-  const elena = desk.addContact({
+  const elena = await desk.addContact({
     name: 'Elena Ortiz',
     company: 'Pinegrove Logistics',
     title: 'Analytics Manager',
     howMet: 'LinkedIn',
   });
-  const sam = desk.addContact({
+  const sam = await desk.addContact({
     name: 'Sam Oduya',
     company: 'Meridian Bank',
     title: 'Campus Recruiting Lead',
     howMet: 'Info session',
   });
-  const jun = desk.addContact({
+  const jun = await desk.addContact({
     name: 'Jun Park',
     company: 'Brightline Media',
     title: 'Product Analyst',
     howMet: 'Club speaker event',
   });
 
-  desk.logOutreach({
+  await desk.logOutreach({
     contactId: priya.id,
     applicationId: id('Northwind Analytics'),
     channel: 'email',
     summary: 'Thank-you note after the fair',
     at: ago(35),
   });
-  desk.logResponse({
+  await desk.logResponse({
     contactId: priya.id,
     applicationId: id('Northwind Analytics'),
     channel: 'email',
     summary: 'Sent OA link',
     at: ago(24),
   });
-  desk.scheduleInterview(
+  await desk.scheduleInterview(
     id('Northwind Analytics'),
     { at: now + 3 * DAY, round: 'Technical round', location: 'Zoom' },
     ago(15),
   );
 
-  desk.logOutreach({
+  await desk.logOutreach({
     contactId: marcus.id,
     applicationId: id('Kestrel Health'),
     channel: 'referral',
     summary: 'Asked for a referral',
     at: ago(31),
   });
-  desk.logResponse({
+  await desk.logResponse({
     contactId: marcus.id,
     channel: 'email',
     summary: 'Submitted referral',
     at: ago(29),
   });
-  desk.addNote(
+  await desk.addNote(
     id('Kestrel Health'),
     'Offer deadline is two weeks out — compare with Northwind timeline.',
     ago(6),
   );
 
-  desk.logOutreach({
+  await desk.logOutreach({
     contactId: elena.id,
     applicationId: id('Pinegrove Logistics'),
     channel: 'linkedin',
     summary: 'Coffee chat request',
     at: ago(16),
   });
-  desk.logOutreach({
+  await desk.logOutreach({
     contactId: sam.id,
     applicationId: id('Meridian Bank'),
     channel: 'email',
     summary: 'Followed up after info session',
     at: ago(10),
   });
-  desk.logOutreach({
+  await desk.logOutreach({
     contactId: jun.id,
     channel: 'linkedin',
     summary: 'Asked about the analytics team',
     at: ago(12),
   });
-  desk.logResponse({
+  await desk.logResponse({
     contactId: jun.id,
     channel: 'linkedin',
     summary: 'Happy to chat next week',
     at: ago(11),
   });
-  desk.logResponse({
+  await desk.logResponse({
     applicationId: id('Brightline Media'),
     channel: 'portal',
     summary: 'OA invitation',
@@ -256,7 +256,7 @@ export function seedDemo(desk: Offerdesk, now: number = Date.now()): void {
   });
 
   // Two postings Vesper read off Handshake, flagged to get started.
-  desk.capturePosting({
+  await desk.capturePosting({
     company: 'Summit Health Labs',
     role: 'Clinical Data Analyst Intern',
     location: 'Nashville, TN',
@@ -268,7 +268,7 @@ export function seedDemo(desk: Offerdesk, now: number = Date.now()): void {
     postingText:
       'Fictional demo posting. Build dashboards on patient-flow data with SQL and Python.',
   });
-  desk.capturePosting({
+  await desk.capturePosting({
     company: 'Beacon Transit Authority',
     role: 'Data Science Intern',
     location: 'Remote',

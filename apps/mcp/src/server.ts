@@ -63,10 +63,10 @@ function fail(err: unknown): Content {
   return { content: [{ type: 'text', text: message }], isError: true };
 }
 
-function safe<A>(fn: (args: A) => Content): (args: A) => Promise<Content> {
+function safe<A>(fn: (args: A) => Promise<Content>): (args: A) => Promise<Content> {
   return async (args) => {
     try {
-      return fn(args);
+      return await fn(args);
     } catch (err) {
       return fail(err);
     }
@@ -93,11 +93,12 @@ function asText(report: Report, limit = 200): string {
 }
 
 /** Find a view by id or by name, case-insensitively. */
-function findView(desk: Offerdesk, ref: string): SavedView {
+async function findView(desk: Offerdesk, ref: string): Promise<SavedView> {
   const key = ref.trim().toLowerCase();
-  const found = desk.views.list().find((v) => v.id === ref || v.name.toLowerCase() === key);
+  const views = await desk.views.list();
+  const found = views.find((v) => v.id === ref || v.name.toLowerCase() === key);
   if (!found) {
-    const names = desk.views.list().map((v) => `"${v.name}"`);
+    const names = views.map((v) => `"${v.name}"`);
     throw new NotFoundError('view', `${ref} (try ${names.join(', ')})`);
   }
   return found;
@@ -118,8 +119,8 @@ export function createServer(desk: Offerdesk): McpServer {
         'Overview of the internship search: pipeline counts, response rate, postings flagged to get started, follow-ups due, and deadlines in the next two weeks. Use for "how is my search going" or "what should I do today".',
       annotations: READ,
     },
-    safe(() => {
-      const d = desk.dashboard();
+    safe(async () => {
+      const d = await desk.dashboard();
       const s = d.stats;
       const summary = [
         `${s.total} tracked, ${s.submitted} submitted, ${s.responseRate === null ? 'no' : `${Math.round(s.responseRate * 100)}%`} response rate, ${plural(s.interviews, 'interview')}, ${plural(s.offers, 'offer')}.`,
@@ -151,10 +152,9 @@ export function createServer(desk: Offerdesk): McpServer {
       },
       annotations: READ,
     },
-    safe(({ status, flagged, query }) => {
+    safe(async ({ status, flagged, query }) => {
       const q = query?.trim().toLowerCase();
-      const apps = desk
-        .listApplications()
+      const apps = (await desk.listApplications())
         .filter((a) => !status || a.status === status)
         .filter((a) => !flagged || a.flags.includes('start'))
         .filter((a) => !q || `${a.companyName} ${a.role}`.toLowerCase().includes(q));
@@ -172,8 +172,8 @@ export function createServer(desk: Offerdesk): McpServer {
       inputSchema: { id: z.string() },
       annotations: READ,
     },
-    safe(({ id }) => {
-      const a = desk.getApplicationDetail(id);
+    safe(async ({ id }) => {
+      const a = await desk.getApplicationDetail(id);
       return reply(line(a), a);
     }),
   );
@@ -186,8 +186,8 @@ export function createServer(desk: Offerdesk): McpServer {
         'Applications and people that have gone quiet for a week or more since the user last reached out.',
       annotations: READ,
     },
-    safe(() => {
-      const d = desk.dashboard();
+    safe(async () => {
+      const d = await desk.dashboard();
       if (d.followUps.length === 0) return reply('Nobody is waiting on a follow-up.');
       return reply(
         d.followUps
@@ -210,8 +210,8 @@ export function createServer(desk: Offerdesk): McpServer {
       inputSchema: { days: z.number().int().positive().max(120).optional() },
       annotations: READ,
     },
-    safe(({ days }) => {
-      const apps = desk.upcomingDeadlines(days ?? 14);
+    safe(async ({ days }) => {
+      const apps = await desk.upcomingDeadlines(days ?? 14);
       if (apps.length === 0) return reply(`Nothing is due in the next ${days ?? 14} days.`);
       return reply(apps.map(line).join('\n'));
     }),
@@ -243,8 +243,11 @@ export function createServer(desk: Offerdesk): McpServer {
       },
       annotations: ADD,
     },
-    safe((args) => {
-      const { application: a, duplicate } = desk.capturePosting({ ...args, capturedBy: 'vesper' });
+    safe(async (args) => {
+      const { application: a, duplicate } = await desk.capturePosting({
+        ...args,
+        capturedBy: 'vesper',
+      });
       if (duplicate) {
         return reply(`Already tracked: ${line(a)}. Nothing was added.`, {
           duplicate,
@@ -267,8 +270,8 @@ export function createServer(desk: Offerdesk): McpServer {
         "Saved table views (built-in presets and the user's own), with their columns and filters.",
       annotations: READ,
     },
-    safe(() => {
-      const views = desk.views.list();
+    safe(async () => {
+      const views = await desk.views.list();
       return reply(
         views.map((v) => `${v.name}${v.builtIn ? ' (built in)' : ''} [id ${v.id}]`).join('\n'),
         views.map((v) => ({ id: v.id, name: v.name, builtIn: v.builtIn, spec: v.spec })),
@@ -285,8 +288,8 @@ export function createServer(desk: Offerdesk): McpServer {
       inputSchema: { view: z.string().min(1).describe('View name or id') },
       annotations: READ,
     },
-    safe(({ view }) => {
-      const report = desk.report({ viewId: findView(desk, view).id });
+    safe(async ({ view }) => {
+      const report = await desk.report({ viewId: (await findView(desk, view)).id });
       const title = `${report.view?.name}: ${plural(report.rows.length, 'row')}.`;
       return reply(report.rows.length === 0 ? title : `${title}\n\n${asText(report)}`);
     }),
@@ -307,13 +310,13 @@ export function createServer(desk: Offerdesk): McpServer {
     },
     async ({ view, format, path }) => {
       try {
-        const v = findView(desk, view);
+        const v = await findView(desk, view);
         const out =
           path ?? join(homedir(), 'Downloads', `${slug(v.name)}-${isoDate(Date.now())}.${format}`);
         const ext = extname(out).slice(1).toLowerCase();
         if (!isAbsolute(out)) throw new Error('path must be absolute');
         if (ext !== 'xlsx' && ext !== 'csv') throw new Error('path must end in .xlsx or .csv');
-        const report = desk.report({ viewId: v.id });
+        const report = await desk.report({ viewId: v.id });
         writeFileSync(out, ext === 'xlsx' ? await toXlsx(report) : toCsv(report));
         const rows = report.rows.length;
         return reply(`Saved "${v.name}" (${plural(rows, 'row')}) to ${out}.`, { path: out, rows });
@@ -341,8 +344,8 @@ export function createServer(desk: Offerdesk): McpServer {
       },
       annotations: ADD,
     },
-    safe((args) => {
-      const a = desk.addApplication(args, { source: 'vesper' });
+    safe(async (args) => {
+      const a = await desk.addApplication(args, { source: 'vesper' });
       return reply(`Added ${line(a)}.`, a);
     }),
   );
@@ -355,8 +358,8 @@ export function createServer(desk: Offerdesk): McpServer {
       inputSchema: { id: z.string(), status: Status },
       annotations: CHANGE,
     },
-    safe(({ id, status }) => {
-      const a = desk.setStatus(id, status);
+    safe(async ({ id, status }) => {
+      const a = await desk.setStatus(id, status);
       return reply(`${a.companyName} — ${a.role} is now ${STATUS_LABELS[a.status].toLowerCase()}.`);
     }),
   );
@@ -369,8 +372,8 @@ export function createServer(desk: Offerdesk): McpServer {
       inputSchema: { id: z.string(), flag: z.enum(FLAGS).default('start'), on: z.boolean() },
       annotations: CHANGE,
     },
-    safe(({ id, flag, on }) => {
-      const a = on ? desk.flag(id, flag) : desk.unflag(id, flag);
+    safe(async ({ id, flag, on }) => {
+      const a = on ? await desk.flag(id, flag) : await desk.unflag(id, flag);
       return reply(
         `${a.companyName} — ${a.role}: ${on ? 'flagged to get started' : 'flag removed'}.`,
       );
@@ -386,8 +389,8 @@ export function createServer(desk: Offerdesk): McpServer {
       inputSchema: { id: z.string(), text: z.string().min(1) },
       annotations: ADD,
     },
-    safe(({ id, text }) => {
-      desk.addNote(id, text);
+    safe(async ({ id, text }) => {
+      await desk.addNote(id, text);
       return reply('Note saved.');
     }),
   );
@@ -409,8 +412,8 @@ export function createServer(desk: Offerdesk): McpServer {
       },
       annotations: ADD,
     },
-    safe((args) => {
-      desk.logOutreach(args);
+    safe(async (args) => {
+      await desk.logOutreach(args);
       return reply('Outreach logged.');
     }),
   );
@@ -426,8 +429,8 @@ export function createServer(desk: Offerdesk): McpServer {
       },
       annotations: ADD,
     },
-    safe((args) => {
-      desk.logResponse(args);
+    safe(async (args) => {
+      await desk.logResponse(args);
       return reply('Reply logged.');
     }),
   );

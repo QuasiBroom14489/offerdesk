@@ -43,28 +43,25 @@ export class EventLog {
     private readonly workspaceId: string = 'local',
   ) {}
 
-  append<K extends EventKind>(ev: NewEvent<K>): OfferdeskEvent<K> {
+  async append<K extends EventKind>(ev: NewEvent<K>): Promise<OfferdeskEvent<K>> {
     const payload = EventPayloads[ev.kind].parse(ev.payload) as OfferdeskEvent<K>['payload'];
     const id = randomUUID();
     const ts = ev.ts ?? Date.now();
     const source = ev.source ?? 'manual';
-    const info = this.db
-      .prepare(
-        `INSERT INTO events (id, workspace_id, ts, kind, application_id, contact_id, source, payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        id,
-        this.workspaceId,
-        ts,
-        ev.kind,
-        ev.applicationId ?? null,
-        ev.contactId ?? null,
-        source,
-        JSON.stringify(payload),
-      );
+    const info = await this.db.run(
+      `INSERT INTO events (id, workspace_id, ts, kind, application_id, contact_id, source, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      this.workspaceId,
+      ts,
+      ev.kind,
+      ev.applicationId ?? null,
+      ev.contactId ?? null,
+      source,
+      JSON.stringify(payload),
+    );
     return {
-      seq: Number(info.lastInsertRowid),
+      seq: info.lastInsertRowid,
       id,
       ts,
       kind: ev.kind,
@@ -75,26 +72,28 @@ export class EventLog {
     };
   }
 
-  all(): AnyEvent[] {
+  all(): Promise<AnyEvent[]> {
     return this.select('ORDER BY ts, seq');
   }
 
-  forApplication(applicationId: string): AnyEvent[] {
+  forApplication(applicationId: string): Promise<AnyEvent[]> {
     return this.select('AND application_id = ? ORDER BY ts, seq', applicationId);
   }
 
-  forContact(contactId: string): AnyEvent[] {
+  forContact(contactId: string): Promise<AnyEvent[]> {
     return this.select('AND contact_id = ? ORDER BY ts, seq', contactId);
   }
 
-  recent(limit: number): AnyEvent[] {
+  recent(limit: number): Promise<AnyEvent[]> {
     return this.select('ORDER BY ts DESC, seq DESC LIMIT ?', limit);
   }
 
-  private select(tail: string, ...params: (string | number)[]): AnyEvent[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM events WHERE workspace_id = ? ${tail}`)
-      .all(this.workspaceId, ...params) as unknown as EventRow[];
+  private async select(tail: string, ...params: (string | number)[]): Promise<AnyEvent[]> {
+    const rows = await this.db.all<EventRow>(
+      `SELECT * FROM events WHERE workspace_id = ? ${tail}`,
+      this.workspaceId,
+      ...params,
+    );
     return rows.map(fromRow);
   }
 }

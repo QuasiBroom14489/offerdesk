@@ -7,8 +7,8 @@ describe('REST API', () => {
   let desk: Offerdesk;
   let app: FastifyInstance;
 
-  beforeEach(() => {
-    desk = Offerdesk.open(':memory:');
+  beforeEach(async () => {
+    desk = await Offerdesk.open(':memory:');
     app = buildServer(desk);
   });
 
@@ -136,9 +136,9 @@ describe('REST API', () => {
   });
 
   describe('views and exports', () => {
-    beforeEach(() => {
-      desk.addApplication({ company: 'Acme', role: 'Data Intern', status: 'applied' });
-      desk.addApplication({ company: 'Beta', role: 'Analyst', deadline: '2026-12-01' });
+    beforeEach(async () => {
+      await desk.addApplication({ company: 'Acme', role: 'Data Intern', status: 'applied' });
+      await desk.addApplication({ company: 'Beta', role: 'Analyst', deadline: '2026-12-01' });
     });
 
     const spec = { columns: ['company', 'status', 'deadline'], sort: [{ column: 'company' }] };

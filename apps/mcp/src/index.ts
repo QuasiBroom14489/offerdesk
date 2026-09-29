@@ -10,7 +10,10 @@ import { createServer } from './server.js';
  * stdout is the protocol channel, so diagnostics go to stderr only.
  */
 const cfg = loadConfig();
-const desk = Offerdesk.open(cfg.dbPath, { followUpAfterDays: cfg.followUpAfterDays });
+const desk = await Offerdesk.open(cfg.dbUrl, {
+  authToken: cfg.dbAuthToken,
+  followUpAfterDays: cfg.followUpAfterDays,
+});
 const server = createServer(desk);
 
 const shutdown = async () => {
@@ -22,4 +25,4 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 await server.connect(new StdioServerTransport());
-console.error(`offerdesk mcp: serving ${cfg.dbPath}`);
+console.error(`offerdesk mcp: serving ${cfg.dbAuthToken ? 'the hosted database' : cfg.dbUrl}`);

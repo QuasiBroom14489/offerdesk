@@ -19,25 +19,34 @@ describe('reports', () => {
   let clock: number;
   let desk: Offerdesk;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     clock = T0;
-    desk = Offerdesk.open(':memory:', { now: () => clock });
+    desk = await Offerdesk.open(':memory:', { now: () => clock });
     const at = (days: number) => T0 + days * DAY;
 
     // Applied on day 0, heard back on day 5.
-    const acme = desk.addApplication({ company: 'Acme', role: 'Data Intern', status: 'applied' });
-    desk.logResponse({ applicationId: acme.id, channel: 'email', at: at(5) });
-    desk.setStatus(acme.id, 'interview', at(6));
-    desk.scheduleInterview(acme.id, { at: at(20), round: 'Final' }, at(6));
+    const acme = await desk.addApplication({
+      company: 'Acme',
+      role: 'Data Intern',
+      status: 'applied',
+    });
+    await desk.logResponse({ applicationId: acme.id, channel: 'email', at: at(5) });
+    await desk.setStatus(acme.id, 'interview', at(6));
+    await desk.scheduleInterview(acme.id, { at: at(20), round: 'Final' }, at(6));
 
     // Saved on day 0, applied on day 2, followed up on day 6, still waiting.
-    const beta = desk.addApplication({ company: 'Beta Labs', role: 'Analyst Intern' });
-    desk.setStatus(beta.id, 'applied', at(2));
-    const priya = desk.addContact({ name: 'Priya', company: 'Beta Labs' });
-    desk.logOutreach({ contactId: priya.id, applicationId: beta.id, channel: 'email', at: at(6) });
+    const beta = await desk.addApplication({ company: 'Beta Labs', role: 'Analyst Intern' });
+    await desk.setStatus(beta.id, 'applied', at(2));
+    const priya = await desk.addContact({ name: 'Priya', company: 'Beta Labs' });
+    await desk.logOutreach({
+      contactId: priya.id,
+      applicationId: beta.id,
+      channel: 'email',
+      at: at(6),
+    });
 
     // Only saved, due in five days, flagged.
-    desk.capturePosting({
+    await desk.capturePosting({
       company: 'Gamma, Inc.',
       role: '=HYPERLINK("x")',
       deadline: '2026-09-15',
@@ -46,15 +55,19 @@ describe('reports', () => {
     });
 
     // Applied then rejected on day 3.
-    const delta = desk.addApplication({ company: 'Delta', role: 'Intern', status: 'applied' });
-    desk.setStatus(delta.id, 'rejected', at(3));
+    const delta = await desk.addApplication({
+      company: 'Delta',
+      role: 'Intern',
+      status: 'applied',
+    });
+    await desk.setStatus(delta.id, 'rejected', at(3));
 
     clock = at(10);
   });
 
-  it('computes derived columns from the event log', () => {
+  it('computes derived columns from the event log', async () => {
     const rows = table(
-      desk.report({
+      await desk.report({
         spec: {
           columns: [
             'company',
@@ -135,100 +148,101 @@ describe('reports', () => {
     ]);
   });
 
-  it('runs the presets', () => {
-    expect(desk.views.list().map((v) => v.name)).toEqual([
+  it('runs the presets', async () => {
+    expect((await desk.views.list()).map((v) => v.name)).toEqual([
       'Everything',
       'Waiting to hear',
       'Response times',
       'Due this month',
     ]);
-    expect(desk.report().view?.id).toBe('everything');
-    expect(desk.report().rows).toHaveLength(4);
+    expect((await desk.report()).view?.id).toBe('everything');
+    expect((await desk.report()).rows).toHaveLength(4);
 
-    const waiting = table(desk.report({ viewId: 'waiting' }));
+    const waiting = table(await desk.report({ viewId: 'waiting' }));
     expect(waiting.map((r) => [r.company, r.daysWaiting])).toEqual([['Beta Labs', 4]]);
 
-    const responses = table(desk.report({ viewId: 'response-times' }));
+    const responses = table(await desk.report({ viewId: 'response-times' }));
     expect(responses.map((r) => [r.company, r.responseDays])).toEqual([
       ['Delta', 3],
       ['Acme', 5],
     ]);
 
-    const due = table(desk.report({ viewId: 'deadlines' }));
+    const due = table(await desk.report({ viewId: 'deadlines' }));
     expect(due.map((r) => r.company)).toEqual(['Gamma, Inc.']);
     clock += 10 * DAY; // past the deadline
-    expect(desk.report({ viewId: 'deadlines' }).rows).toHaveLength(0);
+    expect((await desk.report({ viewId: 'deadlines' })).rows).toHaveLength(0);
   });
 
-  it('filters by every operator family', () => {
-    const companies = (filters: object[], query?: string) =>
+  it('filters by every operator family', async () => {
+    const companies = async (filters: object[], query?: string) =>
       table(
-        desk.report({
+        await desk.report({
           spec: { columns: ['company'], filters, query, sort: [{ column: 'company' }] },
         } as never),
       ).map((r) => r.company);
 
-    expect(companies([{ column: 'status', op: 'in', value: ['applied', 'rejected'] }])).toEqual([
+    expect(
+      await companies([{ column: 'status', op: 'in', value: ['applied', 'rejected'] }]),
+    ).toEqual(['Beta Labs', 'Delta']);
+    expect(await companies([{ column: 'company', op: 'contains', value: 'LAB' }])).toEqual([
       'Beta Labs',
-      'Delta',
     ]);
-    expect(companies([{ column: 'company', op: 'contains', value: 'LAB' }])).toEqual(['Beta Labs']);
-    expect(companies([{ column: 'daysSinceApplied', op: 'gte', value: 9 }])).toEqual([
+    expect(await companies([{ column: 'daysSinceApplied', op: 'gte', value: 9 }])).toEqual([
       'Acme',
       'Delta',
     ]);
-    expect(companies([{ column: 'deadline', op: 'lte', value: 'today+7' }])).toEqual([
+    expect(await companies([{ column: 'deadline', op: 'lte', value: 'today+7' }])).toEqual([
       'Gamma, Inc.',
     ]);
     // An empty cell "is not" anything, so neq keeps it.
-    expect(companies([{ column: 'responseDays', op: 'neq', value: 3 }])).toEqual([
+    expect(await companies([{ column: 'responseDays', op: 'neq', value: 3 }])).toEqual([
       'Acme',
       'Beta Labs',
       'Gamma, Inc.',
     ]);
-    expect(companies([{ column: 'responseDays', op: 'empty' }])).toEqual([
+    expect(await companies([{ column: 'responseDays', op: 'empty' }])).toEqual([
       'Beta Labs',
       'Gamma, Inc.',
     ]);
     // Search sees what the screen shows: status labels, not ids.
     expect(
-      table(desk.report({ spec: { columns: ['company', 'status'], query: 'interviewing' } })).map(
-        (r) => r.company,
-      ),
+      table(
+        await desk.report({ spec: { columns: ['company', 'status'], query: 'interviewing' } }),
+      ).map((r) => r.company),
     ).toEqual(['Acme']);
   });
 
-  it('sorts with empty cells last in both directions', () => {
-    const order = (desc: boolean) =>
+  it('sorts with empty cells last in both directions', async () => {
+    const order = async (desc: boolean) =>
       table(
-        desk.report({
+        await desk.report({
           spec: { columns: ['company', 'responseDays'], sort: [{ column: 'responseDays', desc }] },
         }),
       ).map((r) => r.responseDays);
-    expect(order(false)).toEqual([3, 5, null, null]);
-    expect(order(true)).toEqual([5, 3, null, null]);
+    expect(await order(false)).toEqual([3, 5, null, null]);
+    expect(await order(true)).toEqual([5, 3, null, null]);
 
     const byStatus = table(
-      desk.report({ spec: { columns: ['status'], sort: [{ column: 'status' }] } }),
+      await desk.report({ spec: { columns: ['status'], sort: [{ column: 'status' }] } }),
     ).map((r) => r.status);
     expect(byStatus).toEqual(['saved', 'applied', 'interview', 'rejected']);
   });
 
-  it('rejects filters that do not fit the column', () => {
-    expect(() =>
+  it('rejects filters that do not fit the column', async () => {
+    await expect(() =>
       desk.report({
         spec: { columns: ['company'], filters: [{ column: 'status', op: 'gt', value: 'x' }] },
       }),
-    ).toThrow(/does not apply/);
-    expect(() =>
+    ).rejects.toThrow(/does not apply/);
+    await expect(() =>
       desk.report({
         spec: { columns: ['company'], filters: [{ column: 'deadline', op: 'lt', value: 'soon' }] },
       }),
-    ).toThrow(/today/);
-    expect(() => desk.report({ spec: { columns: [] } })).toThrow(/at least one/);
+    ).rejects.toThrow(/today/);
+    await expect(() => desk.report({ spec: { columns: [] } })).rejects.toThrow(/at least one/);
   });
 
-  it('resolves relative dates', () => {
+  it('resolves relative dates', async () => {
     expect(resolveDate('today', T0)).toBe('2026-09-01');
     expect(resolveDate('today+30', T0)).toBe('2026-10-01');
     expect(resolveDate('today-1', T0)).toBe('2026-08-31');
@@ -238,44 +252,46 @@ describe('reports', () => {
   describe('saved views', () => {
     const spec = { columns: ['company', 'daysWaiting'] as const, sort: [] };
 
-    it('saves, renames, reuses and deletes a view', () => {
-      const v = desk.views.create({
+    it('saves, renames, reuses and deletes a view', async () => {
+      const v = await desk.views.create({
         name: 'Nudge list',
         spec: { ...spec, columns: [...spec.columns] },
       });
       expect(v).toMatchObject({ name: 'Nudge list', builtIn: false, sheetId: null });
-      expect(desk.report({ viewId: v.id }).view).toEqual({
+      expect((await desk.report({ viewId: v.id })).view).toEqual({
         id: v.id,
         name: 'Nudge list',
         builtIn: false,
       });
 
-      const renamed = desk.views.update(v.id, { name: 'Nudges' });
+      const renamed = await desk.views.update(v.id, { name: 'Nudges' });
       expect(renamed.spec.columns).toEqual(['company', 'daysWaiting']);
-      expect(desk.views.list().map((x) => x.name)).toContain('Nudges');
+      expect((await desk.views.list()).map((x) => x.name)).toContain('Nudges');
 
-      desk.views.remove(v.id);
-      expect(() => desk.views.get(v.id)).toThrow(NotFoundError);
+      await desk.views.remove(v.id);
+      await expect(() => desk.views.get(v.id)).rejects.toThrow(NotFoundError);
     });
 
-    it('refuses duplicate names and edits to presets', () => {
-      desk.views.create({ name: 'Mine', spec: { columns: ['company'] } });
-      expect(() => desk.views.create({ name: 'mine', spec: { columns: ['role'] } })).toThrow(
+    it('refuses duplicate names and edits to presets', async () => {
+      await desk.views.create({ name: 'Mine', spec: { columns: ['company'] } });
+      await expect(() =>
+        desk.views.create({ name: 'mine', spec: { columns: ['role'] } }),
+      ).rejects.toThrow(ConflictError);
+      await expect(() =>
+        desk.views.create({ name: 'Everything', spec: { columns: ['role'] } }),
+      ).rejects.toThrow(ConflictError);
+      await expect(() => desk.views.update('waiting', { name: 'x' })).rejects.toThrow(
         ConflictError,
       );
-      expect(() => desk.views.create({ name: 'Everything', spec: { columns: ['role'] } })).toThrow(
-        ConflictError,
-      );
-      expect(() => desk.views.update('waiting', { name: 'x' })).toThrow(ConflictError);
-      expect(() => desk.views.remove('everything')).toThrow(ConflictError);
+      await expect(() => desk.views.remove('everything')).rejects.toThrow(ConflictError);
     });
 
-    it('keeps views inside their workspace', () => {
+    it('keeps views inside their workspace', async () => {
       const other = new Offerdesk(desk.db, { workspaceId: 'someone-else' });
-      const v = desk.views.create({ name: 'Private', spec: { columns: ['company'] } });
-      expect(other.views.list().map((x) => x.name)).not.toContain('Private');
-      expect(() => other.views.get(v.id)).toThrow(NotFoundError);
-      expect(other.report().rows).toHaveLength(0);
+      const v = await desk.views.create({ name: 'Private', spec: { columns: ['company'] } });
+      expect((await other.views.list()).map((x) => x.name)).not.toContain('Private');
+      await expect(() => other.views.get(v.id)).rejects.toThrow(NotFoundError);
+      expect((await other.report()).rows).toHaveLength(0);
     });
   });
 
@@ -286,8 +302,8 @@ describe('reports', () => {
     } as const;
     const input = { spec: { ...spec, columns: [...spec.columns], sort: [...spec.sort] } };
 
-    it('writes CSV that matches the report row for row', () => {
-      const csv = desk.exportCsv(input);
+    it('writes CSV that matches the report row for row', async () => {
+      const csv = await desk.exportCsv(input);
       expect(csv.startsWith('﻿')).toBe(true);
       const lines = csv.slice(1).trimEnd().split('\r\n');
       expect(lines).toEqual([
@@ -298,7 +314,7 @@ describe('reports', () => {
         // Quoted for the comma; the formula-looking role is neutralized.
         `"Gamma, Inc.","'=HYPERLINK(""x"")",Saved,2026-09-15,,https://example.com/jobs/1`,
       ]);
-      expect(lines).toHaveLength(desk.report(input).rows.length + 1);
+      expect(lines).toHaveLength((await desk.report(input)).rows.length + 1);
     });
 
     it('writes a typed .xlsx with a frozen header and signal-colored status', async () => {

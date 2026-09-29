@@ -14,7 +14,7 @@ describe('MCP server', () => {
   let client: Client;
 
   beforeEach(async () => {
-    desk = Offerdesk.open(':memory:');
+    desk = await Offerdesk.open(':memory:');
     const server = createServer(desk);
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: 'test', version: '0' });
@@ -52,12 +52,12 @@ describe('MCP server', () => {
       /^Added Northwind Analytics — Data Science Intern and flagged/,
     );
 
-    const [app] = desk.listApplications();
+    const [app] = await desk.listApplications();
     expect(app).toMatchObject({ flags: ['start'], addedBy: 'vesper', status: 'saved' });
 
     const again = await call('capture_posting', args);
     expect(again.content[0]?.text).toMatch(/^Already tracked/);
-    expect(desk.listApplications()).toHaveLength(1);
+    expect(await desk.listApplications()).toHaveLength(1);
   });
 
   it('returns tool errors instead of throwing', async () => {
@@ -73,22 +73,22 @@ describe('MCP server', () => {
   });
 
   it('finds, moves and summarises applications', async () => {
-    desk.capturePosting({ company: 'Acme', role: 'Intern' });
+    await desk.capturePosting({ company: 'Acme', role: 'Intern' });
     const listed = await call('list_applications', { flagged: true, query: 'acme' });
     const id = listed.content[0]?.text.match(/\[id ([^\]]+)\]/)?.[1];
     expect(id).toBeTruthy();
 
     const moved = await call('set_status', { id, status: 'applied' });
     expect(moved.content[0]?.text).toBe('Acme — Intern is now applied.');
-    expect(desk.getApplication(id as string).flags).toEqual([]);
+    expect((await desk.getApplication(id as string)).flags).toEqual([]);
 
     const dash = await call('dashboard');
     expect(dash.content[0]?.text).toMatch(/^1 tracked, 1 submitted/);
   });
 
   it('runs and exports table views by name', async () => {
-    desk.addApplication({ company: 'Acme', role: 'Intern', status: 'applied' });
-    desk.addApplication({ company: 'Beta', role: 'Analyst' });
+    await desk.addApplication({ company: 'Acme', role: 'Intern', status: 'applied' });
+    await desk.addApplication({ company: 'Beta', role: 'Analyst' });
 
     const views = await call('list_views');
     expect(views.content[0]?.text).toMatch(/Waiting to hear \(built in\) \[id waiting\]/);

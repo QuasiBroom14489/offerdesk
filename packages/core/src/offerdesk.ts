@@ -1,0 +1,391 @@
+import { randomUUID } from 'node:crypto';
+import {
+  type AnyEvent,
+  type Application,
+  ApplicationPatch,
+  type Contact,
+  type EventPayload,
+  NewApplication,
+  NewContact,
+  type Status,
+} from '@offerdesk/shared';
+import { type Db, openDb, transaction } from './db.js';
+import { type FollowUp, foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
+import { EventLog } from './events.js';
+
+export class NotFoundError extends Error {
+  constructor(what: string, id: string) {
+    super(`${what} not found: ${id}`);
+    this.name = 'NotFoundError';
+  }
+}
+
+interface ApplicationRow {
+  id: string;
+  company_id: string;
+  company_name: string;
+  role: string;
+  posting_url: string | null;
+  location: string | null;
+  season: string | null;
+  deadline: string | null;
+  source: string | null;
+  created_at: number;
+}
+
+interface ContactRow {
+  id: string;
+  company_id: string | null;
+  company_name: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  linkedin: string | null;
+  how_met: string | null;
+  created_at: number;
+}
+
+export interface ApplicationDetail extends Application {
+  timeline: AnyEvent[];
+  contacts: Contact[];
+}
+
+export interface OfferdeskOptions {
+  /** Days of silence before something shows up as a follow-up. */
+  followUpAfterDays?: number;
+  /** Injectable clock, for tests and demo seeding. */
+  now?: () => number;
+}
+
+/**
+ * The application service. The HTTP server, the MCP server and the CLI are all
+ * thin shells over this class — nothing that decides or remembers lives in them.
+ */
+export class Offerdesk {
+  readonly events: EventLog;
+  private readonly followUpAfterDays: number;
+  private readonly now: () => number;
+
+  constructor(
+    readonly db: Db,
+    opts: OfferdeskOptions = {},
+  ) {
+    this.events = new EventLog(db);
+    this.followUpAfterDays = opts.followUpAfterDays ?? 7;
+    this.now = opts.now ?? Date.now;
+  }
+
+  static open(path: string, opts?: OfferdeskOptions): Offerdesk {
+    return new Offerdesk(openDb(path), opts);
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  // ── companies ────────────────────────────────────────────────────────────
+
+  /** Find a company by name (case-insensitive) or create it. */
+  private companyId(name: string, at: number): string {
+    const trimmed = name.trim();
+    const existing = this.db.prepare('SELECT id FROM companies WHERE name = ?').get(trimmed) as
+      | { id: string }
+      | undefined;
+    if (existing) return existing.id;
+    const id = randomUUID();
+    this.db
+      .prepare('INSERT INTO companies (id, name, created_at) VALUES (?, ?, ?)')
+      .run(id, trimmed, at);
+    return id;
+  }
+
+  // ── applications ─────────────────────────────────────────────────────────
+
+  addApplication(input: NewApplication): Application {
+    const a = NewApplication.parse(input);
+    const at = a.at ?? this.now();
+    const id = randomUUID();
+    transaction(this.db, () => {
+      const companyId = this.companyId(a.company, at);
+      this.db
+        .prepare(
+          `INSERT INTO applications
+             (id, company_id, role, posting_url, location, season, deadline, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          companyId,
+          a.role,
+          a.postingUrl ?? null,
+          a.location ?? null,
+          a.season ?? null,
+          a.deadline ?? null,
+          a.source ?? null,
+          at,
+        );
+      this.events.append({
+        kind: 'application.created',
+        applicationId: id,
+        payload: { status: a.status },
+        ts: at,
+      });
+    });
+    return this.getApplication(id);
+  }
+
+  updateApplication(id: string, patch: ApplicationPatch): Application {
+    const p = ApplicationPatch.parse(patch);
+    const columns: Record<keyof typeof p, string> = {
+      role: 'role',
+      postingUrl: 'posting_url',
+      location: 'location',
+      season: 'season',
+      deadline: 'deadline',
+      source: 'source',
+    };
+    const sets: string[] = [];
+    const values: (string | null)[] = [];
+    for (const [key, col] of Object.entries(columns) as [keyof typeof p, string][]) {
+      if (p[key] === undefined) continue;
+      sets.push(`${col} = ?`);
+      values.push(p[key] ?? null);
+    }
+    this.requireApplication(id);
+    if (sets.length > 0) {
+      this.db.prepare(`UPDATE applications SET ${sets.join(', ')} WHERE id = ?`).run(...values, id);
+    }
+    return this.getApplication(id);
+  }
+
+  listApplications(): Application[] {
+    const rows = this.db
+      .prepare(`${APPLICATION_SELECT} ORDER BY a.created_at DESC`)
+      .all() as unknown as ApplicationRow[];
+    const byApp = groupBy(this.events.all(), (e) => e.applicationId);
+    return rows.map((row) => toApplication(row, byApp.get(row.id) ?? []));
+  }
+
+  getApplication(id: string): Application {
+    const row = this.requireApplication(id);
+    return toApplication(row, this.events.forApplication(id));
+  }
+
+  getApplicationDetail(id: string): ApplicationDetail {
+    const row = this.requireApplication(id);
+    const timeline = this.events.forApplication(id);
+    const contactIds = new Set(timeline.map((e) => e.contactId).filter((c): c is string => !!c));
+    const companyContacts = this.listContacts().filter(
+      (c) => c.companyId === row.company_id || contactIds.has(c.id),
+    );
+    return { ...toApplication(row, timeline), timeline, contacts: companyContacts };
+  }
+
+  setStatus(id: string, to: Status, at?: number): Application {
+    const current = this.getApplication(id);
+    if (current.status !== to) {
+      this.events.append({
+        kind: 'status.changed',
+        applicationId: id,
+        payload: { from: current.status, to },
+        ts: at ?? this.now(),
+      });
+    }
+    return this.getApplication(id);
+  }
+
+  addNote(applicationId: string, text: string, at?: number): AnyEvent {
+    this.requireApplication(applicationId);
+    return this.events.append({
+      kind: 'note.added',
+      applicationId,
+      payload: { text },
+      ts: at ?? this.now(),
+    }) as AnyEvent;
+  }
+
+  scheduleInterview(
+    applicationId: string,
+    payload: EventPayload<'interview.scheduled'>,
+    at?: number,
+  ): AnyEvent {
+    this.requireApplication(applicationId);
+    return this.events.append({
+      kind: 'interview.scheduled',
+      applicationId,
+      payload,
+      ts: at ?? this.now(),
+    }) as AnyEvent;
+  }
+
+  /** Applications with a deadline in the next `days` days that are still only saved. */
+  upcomingDeadlines(days = 14): Application[] {
+    const today = isoDate(this.now());
+    const until = isoDate(this.now() + days * 86_400_000);
+    return this.listApplications()
+      .filter(
+        (a) => a.deadline && a.deadline >= today && a.deadline <= until && a.status === 'saved',
+      )
+      .sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? ''));
+  }
+
+  // ── contacts & outreach ──────────────────────────────────────────────────
+
+  addContact(input: NewContact): Contact {
+    const c = NewContact.parse(input);
+    const at = this.now();
+    const id = randomUUID();
+    transaction(this.db, () => {
+      const companyId = c.company ? this.companyId(c.company, at) : null;
+      this.db
+        .prepare(
+          `INSERT INTO contacts (id, company_id, name, title, email, linkedin, how_met, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          companyId,
+          c.name,
+          c.title ?? null,
+          c.email ?? null,
+          c.linkedin ?? null,
+          c.howMet ?? null,
+          at,
+        );
+    });
+    return this.getContact(id);
+  }
+
+  listContacts(): Contact[] {
+    const rows = this.db
+      .prepare(`${CONTACT_SELECT} ORDER BY c.name`)
+      .all() as unknown as ContactRow[];
+    const byContact = groupBy(this.events.all(), (e) => e.contactId);
+    return rows.map((row) => toContact(row, byContact.get(row.id) ?? []));
+  }
+
+  getContact(id: string): Contact {
+    const row = this.db.prepare(`${CONTACT_SELECT} WHERE c.id = ?`).get(id) as
+      | ContactRow
+      | undefined;
+    if (!row) throw new NotFoundError('contact', id);
+    return toContact(row, this.events.forContact(id));
+  }
+
+  logOutreach(input: {
+    contactId?: string | null;
+    applicationId?: string | null;
+    channel: EventPayload<'outreach.sent'>['channel'];
+    summary?: string;
+    at?: number;
+  }): AnyEvent {
+    this.assertTarget(input);
+    return this.events.append({
+      kind: 'outreach.sent',
+      contactId: input.contactId ?? null,
+      applicationId: input.applicationId ?? null,
+      payload: { channel: input.channel, summary: input.summary },
+      ts: input.at ?? this.now(),
+    }) as AnyEvent;
+  }
+
+  logResponse(input: {
+    contactId?: string | null;
+    applicationId?: string | null;
+    channel: EventPayload<'response.received'>['channel'];
+    summary?: string;
+    at?: number;
+  }): AnyEvent {
+    this.assertTarget(input);
+    return this.events.append({
+      kind: 'response.received',
+      contactId: input.contactId ?? null,
+      applicationId: input.applicationId ?? null,
+      payload: { channel: input.channel, summary: input.summary },
+      ts: input.at ?? this.now(),
+    }) as AnyEvent;
+  }
+
+  // ── dashboard reads ──────────────────────────────────────────────────────
+
+  followUps(): FollowUp[] {
+    return followUpsDue(this.events.all(), { now: this.now(), afterDays: this.followUpAfterDays });
+  }
+
+  stats() {
+    const byApp = groupBy(this.events.all(), (e) => e.applicationId);
+    return pipelineStats([...byApp.values()].map(foldApplication));
+  }
+
+  recentActivity(limit = 20): AnyEvent[] {
+    return this.events.recent(limit);
+  }
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+
+  private requireApplication(id: string): ApplicationRow {
+    const row = this.db.prepare(`${APPLICATION_SELECT} WHERE a.id = ?`).get(id) as
+      | ApplicationRow
+      | undefined;
+    if (!row) throw new NotFoundError('application', id);
+    return row;
+  }
+
+  private assertTarget(input: { contactId?: string | null; applicationId?: string | null }): void {
+    if (!input.contactId && !input.applicationId) {
+      throw new Error('outreach and responses need a contactId, an applicationId, or both');
+    }
+    if (input.contactId) this.getContact(input.contactId);
+    if (input.applicationId) this.requireApplication(input.applicationId);
+  }
+}
+
+const APPLICATION_SELECT = `
+  SELECT a.*, co.name AS company_name
+  FROM applications a JOIN companies co ON co.id = a.company_id`;
+
+const CONTACT_SELECT = `
+  SELECT c.*, co.name AS company_name
+  FROM contacts c LEFT JOIN companies co ON co.id = c.company_id`;
+
+function toApplication(row: ApplicationRow, events: readonly AnyEvent[]): Application {
+  const h = foldApplication(events);
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    companyName: row.company_name,
+    role: row.role,
+    postingUrl: row.posting_url,
+    location: row.location,
+    season: row.season,
+    deadline: row.deadline,
+    source: row.source,
+    createdAt: row.created_at,
+    status: h.status,
+    lastActivityAt: Math.max(h.lastActivityAt, row.created_at),
+  };
+}
+
+function toContact(row: ContactRow, events: readonly AnyEvent[]): Contact {
+  const touches = events.filter(
+    (e) => e.kind === 'outreach.sent' || e.kind === 'response.received',
+  );
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    companyName: row.company_name,
+    name: row.name,
+    title: row.title,
+    email: row.email,
+    linkedin: row.linkedin,
+    howMet: row.how_met,
+    createdAt: row.created_at,
+    lastTouchedAt: touches.length ? Math.max(...touches.map((e) => e.ts)) : null,
+  };
+}
+
+export function isoDate(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

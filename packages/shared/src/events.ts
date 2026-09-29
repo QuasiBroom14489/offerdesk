@@ -32,6 +32,11 @@ export type EventKind = keyof typeof EventPayloads;
 export const EVENT_KINDS = Object.keys(EventPayloads) as EventKind[];
 export type EventPayload<K extends EventKind> = z.infer<(typeof EventPayloads)[K]>;
 
+/** Who or what recorded an event. Provenance, not meaning — any kind can come from any source. */
+export const EVENT_SOURCES = ['manual', 'vesper', 'gmail', 'obsidian', 'drive', 'demo'] as const;
+export const EventSource = z.enum(EVENT_SOURCES);
+export type EventSource = z.infer<typeof EventSource>;
+
 export interface OfferdeskEvent<K extends EventKind = EventKind> {
   seq: number;
   id: string;
@@ -39,6 +44,7 @@ export interface OfferdeskEvent<K extends EventKind = EventKind> {
   kind: K;
   applicationId: string | null;
   contactId: string | null;
+  source: EventSource;
   payload: EventPayload<K>;
 }
 
@@ -50,4 +56,5 @@ export interface NewEvent<K extends EventKind = EventKind> {
   contactId?: string | null;
   payload: EventPayload<K>;
   ts?: number;
+  source?: EventSource;
 }

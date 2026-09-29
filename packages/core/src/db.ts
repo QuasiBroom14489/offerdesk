@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
  * append-only — status is never a column, it is folded from events.
  * See docs/decisions/0001-sqlite-and-an-event-log.md.
  */
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: readonly string[] = [
   `
   CREATE TABLE companies (
     id         TEXT PRIMARY KEY,
@@ -61,6 +61,47 @@ const MIGRATIONS: string[] = [
   CREATE TRIGGER events_no_delete BEFORE DELETE ON events
     BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
   `,
+  // v2 — service-ready seams (ADR 0002). Every row belongs to a workspace;
+  // a local install is the single workspace 'local'. Company names become
+  // unique per workspace, which needs a table rebuild in SQLite.
+  `
+  CREATE TABLE companies_v2 (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    name         TEXT NOT NULL COLLATE NOCASE,
+    website      TEXT,
+    created_at   INTEGER NOT NULL,
+    UNIQUE (workspace_id, name)
+  );
+  INSERT INTO companies_v2 (id, name, website, created_at)
+    SELECT id, name, website, created_at FROM companies;
+  DROP TABLE companies;
+  ALTER TABLE companies_v2 RENAME TO companies;
+
+  ALTER TABLE applications ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local';
+  ALTER TABLE contacts     ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local';
+  ALTER TABLE events       ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local';
+  -- Provenance: who or what recorded the fact (manual, vesper, gmail, obsidian, drive).
+  ALTER TABLE events       ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
+
+  CREATE INDEX idx_applications_workspace ON applications(workspace_id, created_at);
+  CREATE INDEX idx_contacts_workspace     ON contacts(workspace_id);
+  CREATE INDEX idx_events_workspace       ON events(workspace_id, ts, seq);
+
+  -- Connected services. Mutable configuration, not history, so not events.
+  -- Credentials are never stored here; see CredentialStore.
+  CREATE TABLE connections (
+    id             TEXT PRIMARY KEY,
+    workspace_id   TEXT NOT NULL DEFAULT 'local',
+    provider       TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'disconnected',
+    config         TEXT NOT NULL DEFAULT '{}',
+    last_synced_at INTEGER,
+    last_error     TEXT,
+    created_at     INTEGER NOT NULL,
+    UNIQUE (workspace_id, provider)
+  );
+  `,
 ];
 
 export type Db = DatabaseSync;
@@ -80,11 +121,23 @@ export function openDb(path: string): Db {
 
 function migrate(db: Db): void {
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number };
-  for (let v = row.user_version; v < MIGRATIONS.length; v++) {
-    transaction(db, () => {
-      db.exec(MIGRATIONS[v] as string);
-      db.exec(`PRAGMA user_version = ${v + 1}`);
-    });
+  if (row.user_version >= MIGRATIONS.length) return;
+  // Table rebuilds need foreign keys off, and the pragma is a no-op inside a
+  // transaction — so toggle it around the loop and verify integrity after.
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    for (let v = row.user_version; v < MIGRATIONS.length; v++) {
+      transaction(db, () => {
+        db.exec(MIGRATIONS[v] as string);
+        db.exec(`PRAGMA user_version = ${v + 1}`);
+      });
+    }
+    const broken = db.prepare('PRAGMA foreign_key_check').all();
+    if (broken.length > 0) {
+      throw new Error(`migration left ${broken.length} broken foreign key(s)`);
+    }
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
   }
 }
 

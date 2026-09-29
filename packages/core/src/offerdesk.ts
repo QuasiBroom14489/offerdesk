@@ -13,6 +13,7 @@ import {
   NewContact,
   type Status,
 } from '@offerdesk/shared';
+import { Connections } from './connectors/connections.js';
 import { type Db, openDb, transaction } from './db.js';
 import { foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
 import { EventLog } from './events.js';
@@ -54,6 +55,8 @@ export interface OfferdeskOptions {
   followUpAfterDays?: number;
   /** Injectable clock, for tests and demo seeding. */
   now?: () => number;
+  /** Tenant boundary. A local install is the single workspace 'local' (ADR 0002). */
+  workspaceId?: string;
 }
 
 /**
@@ -62,6 +65,8 @@ export interface OfferdeskOptions {
  */
 export class Offerdesk {
   readonly events: EventLog;
+  readonly connections: Connections;
+  readonly workspaceId: string;
   private readonly followUpAfterDays: number;
   private readonly now: () => number;
 
@@ -69,9 +74,11 @@ export class Offerdesk {
     readonly db: Db,
     opts: OfferdeskOptions = {},
   ) {
-    this.events = new EventLog(db);
+    this.workspaceId = opts.workspaceId ?? 'local';
     this.followUpAfterDays = opts.followUpAfterDays ?? 7;
     this.now = opts.now ?? Date.now;
+    this.events = new EventLog(db, this.workspaceId);
+    this.connections = new Connections(db, this.workspaceId, this.now);
   }
 
   static open(path: string, opts?: OfferdeskOptions): Offerdesk {
@@ -87,14 +94,14 @@ export class Offerdesk {
   /** Find a company by name (case-insensitive) or create it. */
   private companyId(name: string, at: number): string {
     const trimmed = name.trim();
-    const existing = this.db.prepare('SELECT id FROM companies WHERE name = ?').get(trimmed) as
-      | { id: string }
-      | undefined;
+    const existing = this.db
+      .prepare('SELECT id FROM companies WHERE workspace_id = ? AND name = ?')
+      .get(this.workspaceId, trimmed) as { id: string } | undefined;
     if (existing) return existing.id;
     const id = randomUUID();
     this.db
-      .prepare('INSERT INTO companies (id, name, created_at) VALUES (?, ?, ?)')
-      .run(id, trimmed, at);
+      .prepare('INSERT INTO companies (id, workspace_id, name, created_at) VALUES (?, ?, ?, ?)')
+      .run(id, this.workspaceId, trimmed, at);
     return id;
   }
 
@@ -109,11 +116,12 @@ export class Offerdesk {
       this.db
         .prepare(
           `INSERT INTO applications
-             (id, company_id, role, posting_url, location, season, deadline, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (id, workspace_id, company_id, role, posting_url, location, season, deadline, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
+          this.workspaceId,
           companyId,
           a.role,
           a.postingUrl ?? null,
@@ -152,7 +160,9 @@ export class Offerdesk {
     }
     this.requireApplication(id);
     if (sets.length > 0) {
-      this.db.prepare(`UPDATE applications SET ${sets.join(', ')} WHERE id = ?`).run(...values, id);
+      this.db
+        .prepare(`UPDATE applications SET ${sets.join(', ')} WHERE id = ? AND workspace_id = ?`)
+        .run(...values, id, this.workspaceId);
     }
     return this.getApplication(id);
   }
@@ -160,7 +170,7 @@ export class Offerdesk {
   listApplications(): Application[] {
     const rows = this.db
       .prepare(`${APPLICATION_SELECT} ORDER BY a.created_at DESC`)
-      .all() as unknown as ApplicationRow[];
+      .all(this.workspaceId) as unknown as ApplicationRow[];
     const byApp = groupBy(this.events.all(), (e) => e.applicationId);
     return rows.map((row) => toApplication(row, byApp.get(row.id) ?? []));
   }
@@ -238,11 +248,13 @@ export class Offerdesk {
       const companyId = c.company ? this.companyId(c.company, at) : null;
       this.db
         .prepare(
-          `INSERT INTO contacts (id, company_id, name, title, email, linkedin, how_met, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO contacts
+             (id, workspace_id, company_id, name, title, email, linkedin, how_met, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
+          this.workspaceId,
           companyId,
           c.name,
           c.title ?? null,
@@ -258,7 +270,7 @@ export class Offerdesk {
   listContacts(): Contact[] {
     const rows = this.db
       .prepare(`${CONTACT_SELECT} ORDER BY c.name`)
-      .all() as unknown as ContactRow[];
+      .all(this.workspaceId) as unknown as ContactRow[];
     const byContact = groupBy(this.events.all(), (e) => e.contactId);
     return rows.map((row) => toContact(row, byContact.get(row.id) ?? []));
   }
@@ -268,7 +280,7 @@ export class Offerdesk {
   }
 
   getContact(id: string): Contact {
-    const row = this.db.prepare(`${CONTACT_SELECT} WHERE c.id = ?`).get(id) as
+    const row = this.db.prepare(`${CONTACT_SELECT} AND c.id = ?`).get(this.workspaceId, id) as
       | ContactRow
       | undefined;
     if (!row) throw new NotFoundError('contact', id);
@@ -358,7 +370,7 @@ export class Offerdesk {
   // ── helpers ──────────────────────────────────────────────────────────────
 
   private requireApplication(id: string): ApplicationRow {
-    const row = this.db.prepare(`${APPLICATION_SELECT} WHERE a.id = ?`).get(id) as
+    const row = this.db.prepare(`${APPLICATION_SELECT} AND a.id = ?`).get(this.workspaceId, id) as
       | ApplicationRow
       | undefined;
     if (!row) throw new NotFoundError('application', id);
@@ -376,11 +388,13 @@ export class Offerdesk {
 
 const APPLICATION_SELECT = `
   SELECT a.*, co.name AS company_name
-  FROM applications a JOIN companies co ON co.id = a.company_id`;
+  FROM applications a JOIN companies co ON co.id = a.company_id
+  WHERE a.workspace_id = ?`;
 
 const CONTACT_SELECT = `
   SELECT c.*, co.name AS company_name
-  FROM contacts c LEFT JOIN companies co ON co.id = c.company_id`;
+  FROM contacts c LEFT JOIN companies co ON co.id = c.company_id
+  WHERE c.workspace_id = ?`;
 
 function toApplication(row: ApplicationRow, events: readonly AnyEvent[]): Application {
   const h = foldApplication(events);

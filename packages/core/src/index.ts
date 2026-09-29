@@ -1,5 +1,6 @@
 export { loadConfig, type OfferdeskConfig, REPO_ROOT } from './config.js';
-export { type Db, openDb, transaction } from './db.js';
+export * from './connectors/index.js';
+export { type Db, MIGRATIONS, openDb, transaction } from './db.js';
 export { seedDemo } from './demo.js';
 export {
   type ApplicationHistory,

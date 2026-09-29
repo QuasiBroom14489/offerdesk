@@ -39,14 +39,34 @@ Requires Node 24+ and pnpm.
 ```sh
 pnpm install
 pnpm build
-pnpm test
+
+# Try it with fictional data
+pnpm seed:demo
+pnpm start:demo      # http://localhost:4417
+
+# Or use your own (data/offerdesk.db, gitignored)
+pnpm start
+```
+
+For UI work, `pnpm dev` runs Vite on :5417 with hot reload, proxying the API.
+
+Press `⌘K` for the command palette, `N` to add an application, and `G` then
+`H`/`B`/`A`/`P` to move between pages. The full keyboard map and design notes
+are in [docs/design.md](docs/design.md).
+
+## Development
+
+```sh
+pnpm test        # vitest: pure derivations, service, and API tests
+pnpm typecheck
+pnpm lint        # biome
 ```
 
 ## Roadmap
 
 - [x] Event-sourced core: applications, contacts, outreach, follow-ups, stats
-- [ ] REST API + dashboard (home, board, table, detail)
-- [ ] Documents library and contact outreach log
+- [x] REST API + dashboard: home, board, table, application and person pages
+- [ ] Documents library
 - [ ] Resume studio: bullet bank, Claude tailoring, one-page PDF check
 - [ ] Obsidian vault mirror and importer
 - [ ] MCP server for Claude Code and other assistants

@@ -1,0 +1,72 @@
+import type { AnyEvent } from '@offerdesk/shared';
+import { STATUS_LABELS } from '@offerdesk/shared';
+
+const DAY = 86_400_000;
+
+export function relativeDays(ts: number, now = Date.now()): string {
+  const days = Math.round((now - ts) / DAY);
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days === -1) return 'tomorrow';
+  if (days < 0) return `in ${-days} days`;
+  if (days < 14) return `${days} days ago`;
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** Days until an ISO date (local midnight), negative if past. */
+export function daysUntil(iso: string, now = Date.now()): number {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  const target = new Date(y, m - 1, d).getTime();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target - today.getTime()) / DAY);
+}
+
+export function shortDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+export function percent(n: number | null): string {
+  return n === null ? '—' : `${Math.round(n * 100)}%`;
+}
+
+const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+
+/** "Two", "12" — sentence-friendly counts for the home headline. */
+export function countWord(n: number, capitalize = true): string {
+  const w = NUMBER_WORDS[n] ?? String(n);
+  return capitalize ? w : w.toLowerCase();
+}
+
+/** One line describing an event, written from the user's side. */
+export function describeEvent(e: AnyEvent): string {
+  switch (e.kind) {
+    case 'application.created':
+      return e.payload.status === 'saved'
+        ? 'Saved the posting'
+        : `Added as ${STATUS_LABELS[e.payload.status].toLowerCase()}`;
+    case 'status.changed':
+      return `Moved to ${STATUS_LABELS[e.payload.to].toLowerCase()}`;
+    case 'outreach.sent':
+      return e.payload.summary
+        ? `Reached out: ${e.payload.summary}`
+        : `Reached out by ${e.payload.channel}`;
+    case 'response.received':
+      return e.payload.summary
+        ? `Heard back: ${e.payload.summary}`
+        : `Heard back by ${e.payload.channel}`;
+    case 'interview.scheduled':
+      return `Interview scheduled${e.payload.round ? ` (${e.payload.round})` : ''} for ${new Date(e.payload.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    case 'document.attached':
+      return `Attached a ${e.payload.kind}`;
+    case 'resume.generated':
+      return 'Generated a tailored resume';
+    case 'note.added':
+      return e.payload.text;
+  }
+}

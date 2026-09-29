@@ -30,7 +30,24 @@ packages/shared   zod schemas shared by every layer
 - **Event-sourced core.** Status, follow-ups and stats are derived from the log,
   never stored ([ADR 0001](docs/decisions/0001-sqlite-and-an-event-log.md)).
 - **Thin shells.** The API, MCP server and UI hold no business logic, so an AI
-  assistant gets exactly the same capabilities as the dashboard.
+  assistant gets exactly the same capabilities as the dashboard
+  ([ADR 0003](docs/decisions/0003-mcp-first-integration.md)).
+- **Local-first, service-ready.** Every row belongs to a workspace, connectors
+  sit behind an interface, and secrets live in the Keychain, never the database
+  ([ADR 0002](docs/decisions/0002-local-first-service-ready.md)).
+
+## Use it from an AI assistant
+
+OfferDesk ships an MCP server. Register it with Claude Code:
+
+```sh
+claude mcp add offerdesk -- node "$PWD/apps/mcp/dist/index.js"
+```
+
+Then, looking at a job posting: *"add this to my tracker"*. The assistant reads
+the page and calls `capture_posting`, and the posting lands on Home under
+**Get started**, deduplicated by URL or company and role. Other tools include
+`dashboard`, `follow_ups`, `deadlines`, `list_applications` and `set_status`.
 
 ## Quickstart
 
@@ -57,7 +74,7 @@ are in [docs/design.md](docs/design.md).
 ## Development
 
 ```sh
-pnpm test        # vitest: pure derivations, service, and API tests
+pnpm test        # vitest: derivations, service, API and MCP tests
 pnpm typecheck
 pnpm lint        # biome
 ```
@@ -66,10 +83,14 @@ pnpm lint        # biome
 
 - [x] Event-sourced core: applications, contacts, outreach, follow-ups, stats
 - [x] REST API + dashboard: home, board, table, application and person pages
-- [ ] Documents library
+- [x] Minimal light UI with traffic-light signals
+- [x] Workspaces, connections and credential stores (service-ready seams)
+- [x] MCP server; capture a posting from the screen, flagged "get started"
+- [ ] Table builder, saved views, CSV / Excel / Google Sheets export
+- [ ] Documents library and Google Drive connector
 - [ ] Resume studio: bullet bank, Claude tailoring, one-page PDF check
 - [ ] Obsidian vault mirror and importer
-- [ ] MCP server for Claude Code and other assistants
+- [ ] Gmail connector: suggested replies to confirm
 - [ ] Demo GIF, end-to-end tests
 
 ## License

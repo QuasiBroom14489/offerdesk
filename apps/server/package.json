@@ -1,0 +1,31 @@
+{
+  "name": "@offerdesk/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "offerdesk": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/cli.js serve",
+    "dev": "node --watch dist/cli.js serve"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.0.0",
+    "@offerdesk/core": "workspace:*",
+    "@offerdesk/shared": "workspace:*",
+    "fastify": "^5.0.0",
+    "smol-toml": "^1.3.0",
+    "zod": "^4.0.0"
+  }
+}

@@ -1,4 +1,12 @@
-import { type AnyEvent, RESPONDED_STATUSES, type Status } from '@offerdesk/shared';
+import {
+  type AnyEvent,
+  type FollowUp,
+  type PipelineStats,
+  RESPONDED_STATUSES,
+  type Status,
+} from '@offerdesk/shared';
+
+export type { FollowUp, PipelineStats };
 
 /**
  * Pure folds over the event log. Nothing here touches the database, so every
@@ -63,15 +71,6 @@ export function groupBy<K, V>(items: readonly V[], key: (v: V) => K | null): Map
   return out;
 }
 
-export interface FollowUp {
-  kind: 'application' | 'contact';
-  applicationId: string | null;
-  contactId: string | null;
-  /** When the silence started — the last thing we sent or did. */
-  waitingSince: number;
-  daysWaiting: number;
-}
-
 /**
  * Something is due for a follow-up when we were the last to act and the other
  * side has been quiet for `afterDays`:
@@ -108,7 +107,14 @@ export function followUpsDue(
     }
   }
 
-  return out.sort((a, b) => a.waitingSince - b.waitingSince);
+  // A quiet recruiter about a quiet application is one follow-up, not two:
+  // the person is the one to nudge.
+  const coveredByContact = new Set(
+    out.filter((f) => f.kind === 'contact' && f.applicationId).map((f) => f.applicationId),
+  );
+  return out
+    .filter((f) => f.kind === 'contact' || !coveredByContact.has(f.applicationId))
+    .sort((a, b) => a.waitingSince - b.waitingSince);
 }
 
 function followUp(
@@ -131,19 +137,6 @@ function lastTs(events: readonly AnyEvent[], kind: AnyEvent['kind']): number | n
   let ts: number | null = null;
   for (const e of events) if (e.kind === kind && (ts === null || e.ts > ts)) ts = e.ts;
   return ts;
-}
-
-export interface PipelineStats {
-  total: number;
-  byStatus: Record<Status, number>;
-  /** Applications that were actually submitted (left `saved` for the pipeline). */
-  submitted: number;
-  responded: number;
-  /** responded / submitted, or null before anything is submitted. */
-  responseRate: number | null;
-  interviews: number;
-  offers: number;
-  funnel: { stage: string; count: number }[];
 }
 
 const SUBMITTED: ReadonlySet<Status> = new Set([

@@ -69,7 +69,7 @@ describe('Offerdesk', () => {
 
     clock += 8 * DAY;
     const due = desk.followUps();
-    expect(due.map((f) => f.kind).sort()).toEqual(['application', 'contact']);
+    expect(due).toMatchObject([{ kind: 'contact', contactId: contact.id, applicationId: app.id }]);
     expect(desk.getContact(contact.id).lastTouchedAt).toBe(clock - 8 * DAY);
 
     desk.logResponse({ contactId: contact.id, applicationId: app.id, channel: 'email' });
@@ -101,5 +101,21 @@ describe('Offerdesk', () => {
 
   it('rejects outreach with no target', () => {
     expect(() => desk.logOutreach({ channel: 'email' })).toThrow(/contactId/);
+  });
+});
+
+describe('seedDemo', () => {
+  it('builds a coherent demo pipeline', async () => {
+    const { seedDemo } = await import('../src/demo.js');
+    const now = Date.UTC(2026, 9, 1, 12);
+    const desk = Offerdesk.open(':memory:', { now: () => now });
+    seedDemo(desk, now);
+    const d = desk.dashboard();
+    expect(d.stats.total).toBe(11);
+    expect(d.stats.offers).toBe(1);
+    expect(d.deadlines).toHaveLength(3);
+    expect(d.followUps.length).toBeGreaterThan(0);
+    expect(d.followUps.every((f) => f.application || f.contact)).toBe(true);
+    expect(d.recent[0]?.event.ts).toBeLessThanOrEqual(now);
   });
 });

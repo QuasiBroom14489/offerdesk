@@ -124,6 +124,28 @@ describe('followUpsDue', () => {
     expect(due).toEqual([]);
   });
 
+  it('folds a quiet application into the quiet contact it was sent through', () => {
+    const due = followUpsDue(
+      [
+        ev({
+          kind: 'application.created',
+          applicationId: 'a',
+          payload: { status: 'applied' },
+          ts: now - 20 * DAY,
+        }),
+        ev({
+          kind: 'outreach.sent',
+          applicationId: 'a',
+          contactId: 'c',
+          payload: { channel: 'email' },
+          ts: now - 10 * DAY,
+        }),
+      ],
+      { now, afterDays: 7 },
+    );
+    expect(due).toMatchObject([{ kind: 'contact', contactId: 'c', applicationId: 'a' }]);
+  });
+
   it('flags unanswered outreach to a contact, and clears it on reply', () => {
     const sent = ev({
       kind: 'outreach.sent',

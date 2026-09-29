@@ -2,15 +2,19 @@ import { randomUUID } from 'node:crypto';
 import {
   type AnyEvent,
   type Application,
+  type ApplicationDetail,
   ApplicationPatch,
   type Contact,
+  type ContactDetail,
+  type Dashboard,
   type EventPayload,
+  type FollowUp,
   NewApplication,
   NewContact,
   type Status,
 } from '@offerdesk/shared';
 import { type Db, openDb, transaction } from './db.js';
-import { type FollowUp, foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
+import { foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
 import { EventLog } from './events.js';
 
 export class NotFoundError extends Error {
@@ -43,11 +47,6 @@ interface ContactRow {
   linkedin: string | null;
   how_met: string | null;
   created_at: number;
-}
-
-export interface ApplicationDetail extends Application {
-  timeline: AnyEvent[];
-  contacts: Contact[];
 }
 
 export interface OfferdeskOptions {
@@ -264,6 +263,10 @@ export class Offerdesk {
     return rows.map((row) => toContact(row, byContact.get(row.id) ?? []));
   }
 
+  getContactDetail(id: string): ContactDetail {
+    return { ...this.getContact(id), timeline: this.events.forContact(id) };
+  }
+
   getContact(id: string): Contact {
     const row = this.db.prepare(`${CONTACT_SELECT} WHERE c.id = ?`).get(id) as
       | ContactRow
@@ -319,6 +322,37 @@ export class Offerdesk {
 
   recentActivity(limit = 20): AnyEvent[] {
     return this.events.recent(limit);
+  }
+
+  /** Everything the home screen needs, resolved to display names in one call. */
+  dashboard(opts: { deadlineDays?: number; recentLimit?: number } = {}): Dashboard {
+    const apps = new Map(this.listApplications().map((a) => [a.id, a]));
+    const contacts = new Map(this.listContacts().map((c) => [c.id, c]));
+    const appRef = (id: string | null) => {
+      const a = id ? apps.get(id) : undefined;
+      return a ? { id: a.id, label: `${a.companyName} — ${a.role}` } : null;
+    };
+    const contactRef = (id: string | null) => {
+      const c = id ? contacts.get(id) : undefined;
+      return c ? { id: c.id, name: c.name, companyName: c.companyName } : null;
+    };
+    return {
+      stats: this.stats(),
+      followUps: this.followUps().map((f) => ({
+        ...f,
+        application: appRef(f.applicationId),
+        contact: contactRef(f.contactId),
+      })),
+      deadlines: this.upcomingDeadlines(opts.deadlineDays ?? 14),
+      recent: this.recentActivity(opts.recentLimit ?? 15).map((event) => {
+        const c = contactRef(event.contactId);
+        return {
+          event,
+          application: appRef(event.applicationId),
+          contact: c ? { id: c.id, name: c.name } : null,
+        };
+      }),
+    };
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────

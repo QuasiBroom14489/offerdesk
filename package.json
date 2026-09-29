@@ -7,15 +7,19 @@
   "license": "MIT",
   "scripts": {
     "build": "pnpm -r build",
+    "start": "node apps/server/dist/cli.js serve",
+    "start:demo": "OFFERDESK_DB=data/demo.db node apps/server/dist/cli.js serve",
+    "dev": "pnpm --parallel --filter @offerdesk/web --filter @offerdesk/server dev",
+    "seed:demo": "node apps/server/dist/cli.js seed-demo",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",
-    "format": "biome format --write .",
+    "format": "biome check --write .",
     "clean": "pnpm -r exec rm -rf dist"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.0.0",
+    "@biomejs/biome": "^2.5.0",
     "@types/node": "^24.0.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"

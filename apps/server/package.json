@@ -21,6 +21,7 @@
     "dev": "node --watch dist/cli.js serve"
   },
   "dependencies": {
+    "@clerk/fastify": "^3.1.82",
     "@fastify/static": "^8.0.0",
     "@offerdesk/core": "workspace:*",
     "@offerdesk/shared": "workspace:*",

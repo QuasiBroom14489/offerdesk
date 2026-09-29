@@ -217,4 +217,48 @@ describe('REST API', () => {
       expect(junk.statusCode).toBe(400);
     });
   });
+
+  describe('signed-in workspaces', () => {
+    let hosted: FastifyInstance;
+
+    beforeEach(() => {
+      // Stands in for Clerk: the caller's user id, or nobody.
+      hosted = buildServer(desk, {
+        auth: (req) => (req.headers['x-test-user'] as string | undefined) ?? null,
+      });
+    });
+
+    afterEach(async () => {
+      await hosted.close();
+    });
+
+    const as = (user: string | null, method: 'GET' | 'POST', url: string, payload?: object) =>
+      hosted.inject({ method, url, payload, headers: user ? { 'x-test-user': user } : {} });
+
+    it('refuses callers who are not signed in, except health', async () => {
+      expect((await as(null, 'GET', '/api/applications')).statusCode).toBe(401);
+      expect((await as(null, 'GET', '/api/export.csv')).statusCode).toBe(401);
+      expect((await as(null, 'GET', '/api/health')).statusCode).toBe(200);
+    });
+
+    it('never shows one user the data of another', async () => {
+      const created = await as('user_a', 'POST', '/api/applications', {
+        company: 'Acme',
+        role: 'Intern',
+        status: 'applied',
+      });
+      const { id } = created.json();
+      await as('user_a', 'POST', '/api/views', { name: 'Mine', spec: { columns: ['company'] } });
+
+      expect((await as('user_b', 'GET', '/api/applications')).json()).toEqual([]);
+      expect((await as('user_b', 'GET', `/api/applications/${id}`)).statusCode).toBe(404);
+      const views = (await as('user_b', 'GET', '/api/views')).json();
+      expect(views.map((v: { name: string }) => v.name)).not.toContain('Mine');
+      expect((await as('user_b', 'GET', '/api/export.csv')).body).not.toContain('Acme');
+
+      expect((await as('user_a', 'GET', '/api/applications')).json()).toHaveLength(1);
+      // Nothing leaked into the local workspace either.
+      expect(await desk.listApplications()).toEqual([]);
+    });
+  });
 });

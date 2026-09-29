@@ -98,7 +98,7 @@ export class Offerdesk {
 
   constructor(
     readonly db: Db,
-    opts: OfferdeskOptions = {},
+    private readonly opts: OfferdeskOptions = {},
   ) {
     this.workspaceId = opts.workspaceId ?? 'local';
     this.followUpAfterDays = opts.followUpAfterDays ?? 7;
@@ -114,6 +114,14 @@ export class Offerdesk {
     opts?: OfferdeskOptions & { authToken?: string },
   ): Promise<Offerdesk> {
     return new Offerdesk(await openDb(location, opts?.authToken), opts);
+  }
+
+  /**
+   * The same service scoped to another workspace, sharing the connection. A
+   * hosted server makes one per request from the signed-in user (ADR 0005).
+   */
+  forWorkspace(workspaceId: string): Offerdesk {
+    return new Offerdesk(this.db, { ...this.opts, workspaceId });
   }
 
   close(): void {

@@ -16,6 +16,7 @@ import type {
   ViewSpec,
 } from '@offerdesk/shared';
 import { keepPreviousData, QueryClient, useMutation, useQuery } from '@tanstack/react-query';
+import { UNAUTHORIZED_EVENT } from './components/Auth';
 
 export class ApiError extends Error {
   constructor(
@@ -32,6 +33,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     headers: body === undefined ? undefined : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
   const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
   if (!res.ok) {
     const issue = data?.issues?.[0];

@@ -5,14 +5,17 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { queryClient } from './api';
+import { AuthGate } from './components/Auth';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root');
 
 createRoot(root).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <AuthGate>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </AuthGate>
   </StrictMode>,
 );

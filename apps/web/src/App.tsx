@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Link, Route, Switch, useLocation } from 'wouter';
+import { AccountButton } from './components/Auth';
 import { CommandPalette } from './components/CommandPalette';
 import { NewApplicationDialog } from './components/NewApplicationDialog';
 import { NewContactDialog } from './components/NewContactDialog';
@@ -80,6 +81,7 @@ export function App() {
             >
               New
             </button>
+            <AccountButton />
           </div>
         </div>
       </header>

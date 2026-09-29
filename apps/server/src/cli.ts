@@ -23,6 +23,8 @@ async function main(argv: string[]): Promise<void> {
       const app = buildServer(desk, {
         webRoot: resolve(REPO_ROOT, 'apps/web/dist'),
         logger: true,
+        // Signing in is on only when Clerk is configured; locally it's one workspace.
+        auth: process.env.CLERK_SECRET_KEY ? 'clerk' : undefined,
       });
       const close = async () => {
         await app.close();

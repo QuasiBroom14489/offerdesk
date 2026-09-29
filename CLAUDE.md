@@ -5,6 +5,8 @@
 - **Events are append-only** (enforced by triggers). Never add an UPDATE/DELETE
   on `events`; never change an existing event kind's meaning — add a new kind.
 - **Status is derived** by `foldApplication`. Don't add a status column.
+- **Column ids in `REPORT_COLUMNS` are permanent** (saved views refer to them):
+  relabel freely, never rename or remove (ADR 0004).
 - **Every table carries `workspace_id` and every query filters on it** (ADR
   0002). Add new migrations to the end of `MIGRATIONS` in `db.ts`; never edit a
   shipped one.

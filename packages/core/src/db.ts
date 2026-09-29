@@ -102,6 +102,20 @@ export const MIGRATIONS: readonly string[] = [
     UNIQUE (workspace_id, provider)
   );
   `,
+  // v3 — saved table views (ADR 0004). Configuration, not history, so a
+  // mutable row. `spec` is a JSON ViewSpec; presets live in code, not here.
+  `
+  CREATE TABLE views (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    name         TEXT NOT NULL COLLATE NOCASE,
+    spec         TEXT NOT NULL,
+    sheet_id     TEXT,
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL,
+    UNIQUE (workspace_id, name)
+  );
+  `,
 ];
 
 export type Db = DatabaseSync;

@@ -14,19 +14,22 @@ import {
   type FollowUp,
   NewApplication,
   NewContact,
+  type Report,
   type Status,
+  ViewSpec,
+  type ViewSpecInput,
 } from '@offerdesk/shared';
 import { Connections } from './connectors/connections.js';
+import { isoDate } from './dates.js';
 import { type Db, openDb, transaction } from './db.js';
 import { foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
+import { NotFoundError } from './errors.js';
 import { EventLog } from './events.js';
-
-export class NotFoundError extends Error {
-  constructor(what: string, id: string) {
-    super(`${what} not found: ${id}`);
-    this.name = 'NotFoundError';
-  }
-}
+import { type RowFacts, rowFacts } from './reports/columns.js';
+import { toCsv, toXlsx } from './reports/export.js';
+import { DEFAULT_VIEW_ID } from './reports/presets.js';
+import { runView } from './reports/run.js';
+import { Views } from './reports/views.js';
 
 interface ApplicationRow {
   id: string;
@@ -62,6 +65,12 @@ export interface OfferdeskOptions {
   workspaceId?: string;
 }
 
+/** A saved view by id, an ad-hoc spec, or both (the spec wins; the view names the export). */
+export interface ReportInput {
+  viewId?: string;
+  spec?: ViewSpecInput;
+}
+
 /**
  * The application service. The HTTP server, the MCP server and the CLI are all
  * thin shells over this class — nothing that decides or remembers lives in them.
@@ -69,6 +78,7 @@ export interface OfferdeskOptions {
 export class Offerdesk {
   readonly events: EventLog;
   readonly connections: Connections;
+  readonly views: Views;
   readonly workspaceId: string;
   private readonly followUpAfterDays: number;
   private readonly now: () => number;
@@ -82,6 +92,7 @@ export class Offerdesk {
     this.now = opts.now ?? Date.now;
     this.events = new EventLog(db, this.workspaceId);
     this.connections = new Connections(db, this.workspaceId, this.now);
+    this.views = new Views(db, this.workspaceId, this.now);
   }
 
   static open(path: string, opts?: OfferdeskOptions): Offerdesk {
@@ -479,6 +490,47 @@ export class Offerdesk {
     };
   }
 
+  // ── reports & exports ────────────────────────────────────────────────────
+
+  /** Rows for a table view. Exports render this same object, so they match the screen. */
+  report(input: ReportInput = {}): Report {
+    const view =
+      input.viewId || !input.spec ? this.views.get(input.viewId ?? DEFAULT_VIEW_ID) : null;
+    const spec = input.spec ? ViewSpec.parse(input.spec) : (view as NonNullable<typeof view>).spec;
+    const now = this.now();
+    const { columns, rows } = runView(spec, this.reportFacts(now), now);
+    return {
+      view: view ? { id: view.id, name: view.name, builtIn: view.builtIn } : null,
+      spec,
+      columns,
+      rows,
+      generatedAt: now,
+    };
+  }
+
+  exportCsv(input: ReportInput = {}): string {
+    return toCsv(this.report(input));
+  }
+
+  exportXlsx(input: ReportInput = {}): Promise<Buffer> {
+    return toXlsx(this.report(input));
+  }
+
+  private reportFacts(now: number): RowFacts[] {
+    const events = this.events.all();
+    const byApp = groupBy(events, (e) => e.applicationId);
+    const byContact = groupBy(events, (e) => e.contactId);
+    const contacts = this.listContacts();
+    return this.listApplications().map((app) => {
+      const evs = byApp.get(app.id) ?? [];
+      // Same people as the application page: everyone at the company, plus anyone it mentions.
+      const linked = new Set(evs.map((e) => e.contactId));
+      const people = contacts.filter((c) => c.companyId === app.companyId || linked.has(c.id));
+      const peopleEvents = people.flatMap((p) => byContact.get(p.id) ?? []);
+      return rowFacts(app, evs, people, peopleEvents, now);
+    });
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   private requireApplication(id: string): ApplicationRow {
@@ -565,10 +617,4 @@ export function normalizeUrl(url: string): string {
   } catch {
     return url.trim().toLowerCase();
   }
-}
-
-export function isoDate(ms: number): string {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }

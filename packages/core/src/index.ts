@@ -1,5 +1,6 @@
 export { loadConfig, type OfferdeskConfig, REPO_ROOT } from './config.js';
 export * from './connectors/index.js';
+export { daysBetween, isoDate } from './dates.js';
 export { type Db, MIGRATIONS, openDb, transaction } from './db.js';
 export { seedDemo } from './demo.js';
 export {
@@ -10,11 +11,7 @@ export {
   type PipelineStats,
   pipelineStats,
 } from './derive.js';
+export { ConflictError, NotFoundError } from './errors.js';
 export { EventLog } from './events.js';
-export {
-  isoDate,
-  NotFoundError,
-  normalizeUrl,
-  Offerdesk,
-  type OfferdeskOptions,
-} from './offerdesk.js';
+export { normalizeUrl, Offerdesk, type OfferdeskOptions, type ReportInput } from './offerdesk.js';
+export * from './reports/index.js';

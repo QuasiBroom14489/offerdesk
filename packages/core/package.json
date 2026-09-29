@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@offerdesk/shared": "workspace:*",
+    "exceljs": "^4.4.0",
     "smol-toml": "^1.9.0",
     "zod": "^4.0.0"
   }

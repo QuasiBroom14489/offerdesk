@@ -30,6 +30,28 @@ export const RESPONDED_STATUSES: ReadonlySet<Status> = new Set([
   'rejected',
 ]);
 
+/** Traffic-light meaning of a stage (docs/design.md). Shared so exports color cells the same way. */
+export const SIGNALS = ['green', 'yellow', 'red', 'grey'] as const;
+export type Signal = (typeof SIGNALS)[number];
+
+export const STATUS_SIGNAL: Record<Status, Signal> = {
+  saved: 'grey',
+  applied: 'yellow',
+  oa: 'green',
+  interview: 'green',
+  offer: 'green',
+  rejected: 'red',
+  ghosted: 'red',
+  withdrawn: 'grey',
+};
+
+export const SIGNAL_LABELS: Record<Signal, string> = {
+  green: 'Moving forward',
+  yellow: 'Waiting on them',
+  red: 'Closed',
+  grey: 'Neutral',
+};
+
 export function isTerminal(status: Status): boolean {
   return (TERMINAL_STATUSES as readonly string[]).includes(status);
 }

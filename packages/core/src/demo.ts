@@ -1,5 +1,6 @@
 import type { Status } from '@offerdesk/shared';
-import { isoDate, type Offerdesk } from './offerdesk.js';
+import { isoDate } from './dates.js';
+import type { Offerdesk } from './offerdesk.js';
 
 /**
  * Fictional data for screenshots, demos and CI. Every company and person here

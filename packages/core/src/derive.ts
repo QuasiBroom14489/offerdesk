@@ -154,7 +154,8 @@ function lastTs(events: readonly AnyEvent[], kind: AnyEvent['kind']): number | n
   return ts;
 }
 
-const SUBMITTED: ReadonlySet<Status> = new Set([
+/** Statuses that mean the application was actually sent. */
+export const SUBMITTED: ReadonlySet<Status> = new Set([
   'applied',
   'oa',
   'interview',

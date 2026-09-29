@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { NotFoundError, Offerdesk } from '../src/offerdesk.js';
+import { NotFoundError } from '../src/errors.js';
+import { Offerdesk } from '../src/offerdesk.js';
 
 const DAY = 86_400_000;
 

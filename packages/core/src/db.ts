@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { type Client, createClient, type Transaction } from '@libsql/client';
+import type { Client, Config, Transaction } from '@libsql/client';
 
 /**
  * Schema. Entity tables hold descriptive, editable facts (a role's title, a
@@ -195,10 +195,24 @@ export async function openDb(location: string, authToken?: string): Promise<Db> 
   const url = remote || location === ':memory:' ? location : fileUrl(location);
   // Two local processes (web and MCP) can share one file: wait for a lock
   // instead of failing with SQLITE_BUSY. libSQL turns foreign keys on per connection.
-  const db = new LibsqlDb(createClient({ url, authToken, timeout: 5000 }));
+  const db = new LibsqlDb(await connect({ url, authToken, timeout: 5000 }));
   if (url.startsWith('file:')) await db.exec('PRAGMA journal_mode = WAL');
   await migrate(db);
   return db;
+}
+
+/**
+ * A hosted database gets libSQL's fetch-only client. The default client loads
+ * the native SQLite binding when imported, which a serverless function has no
+ * use for, so it's imported only for files and `:memory:`.
+ */
+async function connect(config: Config): Promise<Client> {
+  if (/^(libsql|https?|wss?):/.test(config.url)) {
+    const { createClient } = await import('@libsql/client/web');
+    return createClient(config);
+  }
+  const { createClient } = await import('@libsql/client');
+  return createClient(config);
 }
 
 function fileUrl(path: string): string {

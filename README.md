@@ -20,7 +20,7 @@ event in an append-only log, and the dashboard is a set of pure folds over it.
 
 ```
 apps/web     React dashboard ─┐
-apps/server  Fastify REST API ├──▶ packages/core ──▶ SQLite (append-only events)
+apps/server  Fastify REST API ├──▶ packages/core ──▶ SQLite / Turso (append-only events)
 apps/mcp     MCP server ──────┘        │
                                        ├──▶ Obsidian vault (one-way mirror)
                                        └──▶ Claude + headless Chrome (resume PDFs)
@@ -75,6 +75,19 @@ For UI work, `pnpm dev` runs Vite on :5417 with hot reload, proxying the API.
 Press `⌘K` for the command palette, `N` to add an application, and `G` then
 `H`/`B`/`A`/`P` to move between pages. The full keyboard map and design notes
 are in [docs/design.md](docs/design.md).
+
+## Hosted
+
+The same code runs on Vercel with a hosted Turso database and Clerk sign-in:
+each signed-in user is their own workspace. Locally, with none of that
+configured, it stays a single-user app with no account
+([ADR 0005](docs/decisions/0005-hosted-on-vercel.md)).
+
+```sh
+vercel link && vercel integration add turso && vercel integration add clerk
+node --env-file=.env.local apps/server/dist/cli.js migrate
+vercel deploy
+```
 
 ## Development
 

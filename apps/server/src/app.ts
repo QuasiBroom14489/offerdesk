@@ -92,7 +92,12 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
   // Resolve the caller's workspace once per request, before any handler runs.
   let workspaceFor: (req: FastifyRequest) => string | null | Promise<string | null>;
   if (opts.auth === 'clerk') {
-    app.register(clerkPlugin, { hookName: 'onRequest' });
+    app.register(clerkPlugin, {
+      hookName: 'onRequest',
+      // The Vercel Clerk integration names the key the Next.js way.
+      publishableKey:
+        process.env.CLERK_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    });
     workspaceFor = (req) => getAuth(req).userId;
   } else {
     workspaceFor = opts.auth ?? (() => base.workspaceId);

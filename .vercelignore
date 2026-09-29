@@ -1,0 +1,12 @@
+# Upload source only: Vercel installs and builds. Never ship local data or secrets.
+data/
+*.db
+*.db-*
+*.pdf
+config.toml
+.env*
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store

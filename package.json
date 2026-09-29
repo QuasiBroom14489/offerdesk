@@ -1,0 +1,33 @@
+{
+  "name": "offerdesk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A keyboard-first internship application tracker with an event-sourced core, Claude-tailored resumes, and an MCP server.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "clean": "pnpm -r exec rm -rf dist"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "packageManager": "pnpm@10.29.2",
+  "engines": {
+    "node": ">=24"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@biomejs/biome"
+    ]
+  }
+}

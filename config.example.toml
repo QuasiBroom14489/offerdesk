@@ -1,0 +1,16 @@
+# Copy to config.toml (gitignored) and adjust.
+
+[paths]
+# SQLite database and stored files. Keep this outside anything you publish.
+data_dir = "./data"
+# Obsidian vault root for the one-way mirror. Leave empty to disable.
+vault_root = ""
+# Folder inside the vault that application notes are written to.
+vault_applications_dir = "04 Areas/Career/Applications"
+
+[followups]
+# Days of silence before an application or outreach needs a nudge.
+after_days = 7
+
+[server]
+port = 4417

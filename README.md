@@ -35,6 +35,10 @@ packages/shared   zod schemas shared by every layer
 - **Local-first, service-ready.** Every row belongs to a workspace, connectors
   sit behind an interface, and secrets live in the Keychain, never the database
   ([ADR 0002](docs/decisions/0002-local-first-service-ready.md)).
+- **Build your own tables.** Pick columns (including derived ones like days
+  waiting and response time), filter, sort and save the view. CSV and Excel
+  downloads render the same report as the screen, so they always match
+  ([ADR 0004](docs/decisions/0004-table-views-and-exports.md)).
 
 ## Use it from an AI assistant
 
@@ -47,7 +51,8 @@ claude mcp add offerdesk -- node "$PWD/apps/mcp/dist/index.js"
 Then, looking at a job posting: *"add this to my tracker"*. The assistant reads
 the page and calls `capture_posting`, and the posting lands on Home under
 **Get started**, deduplicated by URL or company and role. Other tools include
-`dashboard`, `follow_ups`, `deadlines`, `list_applications` and `set_status`.
+`dashboard`, `follow_ups`, `deadlines`, `list_applications`, `set_status`, and
+`run_view` / `export_view` for saved tables (*"who haven't I heard back from?"*).
 
 ## Quickstart
 
@@ -86,7 +91,8 @@ pnpm lint        # biome
 - [x] Minimal light UI with traffic-light signals
 - [x] Workspaces, connections and credential stores (service-ready seams)
 - [x] MCP server; capture a posting from the screen, flagged "get started"
-- [ ] Table builder, saved views, CSV / Excel / Google Sheets export
+- [x] Table builder, saved views, CSV / Excel export
+- [ ] Google Sheets push (with the Google connector)
 - [ ] Documents library and Google Drive connector
 - [ ] Resume studio: bullet bank, Claude tailoring, one-page PDF check
 - [ ] Obsidian vault mirror and importer

@@ -1,18 +1,6 @@
-import { STATUS_LABELS, type Status } from '@offerdesk/shared';
+import { type Signal, STATUS_LABELS, STATUS_SIGNAL, type Status } from '@offerdesk/shared';
 
-export type Signal = 'green' | 'yellow' | 'red' | 'grey';
-
-/** Traffic-light meaning of each stage. */
-export const STATUS_SIGNAL: Record<Status, Signal> = {
-  saved: 'grey',
-  applied: 'yellow',
-  oa: 'green',
-  interview: 'green',
-  offer: 'green',
-  rejected: 'red',
-  ghosted: 'red',
-  withdrawn: 'grey',
-};
+export type { Signal };
 
 const DOT: Record<Signal, string> = {
   green: 'var(--green)',

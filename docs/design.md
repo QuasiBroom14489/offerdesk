@@ -44,3 +44,17 @@ else is 14–16px. Section titles are small and grey so the content leads.
 | `J` / `K` | Move through cards or table rows |
 | `[` / `]` (or `H` / `L`) on a focused card | Move it to the previous or next stage |
 | `Enter` | Open the selected row |
+
+## Tables
+
+The Applications page is a table builder. The view tabs across the top are the
+presets, then your saved views. **Columns** adds, hides and reorders columns,
+**Filters** narrows rows (all filters must match), and clicking a header sorts.
+Once you change anything, **Save** (for your own views) or **Save as view…**
+appears, along with a line under the table saying the view is edited but not
+saved.
+
+Cells keep the same signals as everywhere else: status dots, deadline urgency
+(red ≤3 days, yellow ≤7), and days-waiting pills on the follow-up thresholds
+(yellow from 7 days, red from 14). The Excel export tints status cells with the
+same palette.

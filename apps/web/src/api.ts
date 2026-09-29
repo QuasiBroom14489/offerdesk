@@ -8,9 +8,14 @@ import type {
   Flag,
   NewApplication,
   NewContact,
+  NewView,
+  Report,
+  SavedView,
   Status,
+  ViewPatch,
+  ViewSpec,
 } from '@offerdesk/shared';
-import { QueryClient, useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, QueryClient, useMutation, useQuery } from '@tanstack/react-query';
 
 export class ApiError extends Error {
   constructor(
@@ -27,7 +32,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     headers: body === undefined ? undefined : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await res.json().catch(() => ({}));
+  const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
   if (!res.ok) {
     const issue = data?.issues?.[0];
     const detail = issue ? `${issue.path?.join('.') || 'input'}: ${issue.message}` : data?.error;
@@ -134,3 +139,42 @@ export const useLogResponse = () =>
     }) => request<AnyEvent>('POST', '/api/responses', body),
     onSuccess: invalidateAll,
   });
+
+// ── table views ────────────────────────────────────────────────────────────
+
+export const useViews = () =>
+  useQuery({ queryKey: ['views'], queryFn: () => request<SavedView[]>('GET', '/api/views') });
+
+/** Rows for a view, or for an edited spec on top of it. Keeps the old rows while refetching. */
+export const useReport = (viewId: string, spec: ViewSpec | null) =>
+  useQuery({
+    queryKey: ['report', viewId, spec],
+    queryFn: () => request<Report>('POST', '/api/report', spec ? { viewId, spec } : { viewId }),
+    placeholderData: keepPreviousData,
+  });
+
+export const useCreateView = () =>
+  useMutation({
+    mutationFn: (body: NewView) => request<SavedView>('POST', '/api/views', body),
+    onSuccess: invalidateAll,
+  });
+
+export const useUpdateView = () =>
+  useMutation({
+    mutationFn: ({ id, ...patch }: ViewPatch & { id: string }) =>
+      request<SavedView>('PATCH', `/api/views/${id}`, patch),
+    onSuccess: invalidateAll,
+  });
+
+export const useDeleteView = () =>
+  useMutation({
+    mutationFn: (id: string) => request<void>('DELETE', `/api/views/${id}`),
+    onSuccess: invalidateAll,
+  });
+
+/** A plain link, so the browser handles the download. */
+export function exportUrl(format: 'csv' | 'xlsx', viewId: string, spec: ViewSpec | null): string {
+  const q = new URLSearchParams({ view: viewId });
+  if (spec) q.set('spec', JSON.stringify(spec));
+  return `/api/export.${format}?${q}`;
+}

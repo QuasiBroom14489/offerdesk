@@ -3,8 +3,10 @@ import { clerkPlugin, getAuth } from '@clerk/fastify';
 import fastifyStatic from '@fastify/static';
 import {
   ConflictError,
+  GoogleAuthError,
   isoDate,
   NotFoundError,
+  OAuthStateError,
   type Offerdesk,
   UnavailableError,
 } from '@offerdesk/core';
@@ -134,7 +136,9 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
   }
   app.decorateRequest('desk', null as unknown as Offerdesk);
   app.addHook('preHandler', async (req, reply) => {
-    if (!req.url.startsWith('/api/') || req.url === '/api/health') return;
+    const path = req.url.split('?')[0] ?? '';
+    // Google's redirect is a page load, not an API call: it signs itself in below.
+    if (!path.startsWith('/api/') || path === '/api/health' || path === GOOGLE_CALLBACK) return;
     const workspace = await workspaceFor(req);
     if (!workspace) return reply.status(401).send({ error: 'sign in required' });
     req.desk = workspace === base.workspaceId ? base : base.forWorkspace(workspace);
@@ -291,6 +295,59 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
     return reply.status(201).send(await req.desk.logResponse(ResponseBody.parse(req.body)));
   });
 
+  // ── connections (ADR 0007) ────────────────────────────────────────────────
+  app.get('/api/connections', async (req) => ({ google: await req.desk.google.status() }));
+
+  /** Where to send the browser to connect Google; the web app navigates there. */
+  app.post('/api/connections/google/start', async (req) => ({
+    url: req.desk.google.start(`${publicOrigin(req)}${GOOGLE_CALLBACK}`),
+  }));
+
+  /**
+   * Google sends the browser back here. The caller must be signed in to the
+   * workspace that started the flow (the sealed state names it). Every outcome
+   * lands on the Connections page with a message, never a JSON error.
+   */
+  app.get(GOOGLE_CALLBACK, async (req, reply) => {
+    const back = (outcome: string, reason?: string) =>
+      reply.redirect(
+        `/settings?${new URLSearchParams({ google: outcome, ...(reason ? { reason } : {}) })}`,
+      );
+    const q = z
+      .object({
+        code: z.string().optional(),
+        state: z.string().optional(),
+        error: z.string().optional(),
+      })
+      .parse(req.query);
+    if (q.error) return back(q.error === 'access_denied' ? 'denied' : 'error', q.error);
+    if (!q.code || !q.state) return back('error', 'Google sent no authorization code');
+    const workspace = await workspaceFor(req);
+    if (!workspace) return back('error', 'sign in to OfferDesk, then connect Google again');
+    const desk = workspace === base.workspaceId ? base : base.forWorkspace(workspace);
+    try {
+      await desk.google.finish({
+        code: q.code,
+        state: q.state,
+        redirectUri: `${publicOrigin(req)}${GOOGLE_CALLBACK}`,
+      });
+      return back('connected');
+    } catch (err) {
+      if (err instanceof OAuthStateError || err instanceof GoogleAuthError) {
+        return back('error', err.message);
+      }
+      req.log.error(err);
+      return back('error', 'something went wrong finishing the Google sign-in');
+    }
+  });
+
+  app.post('/api/connections/google/check', async (req) => req.desk.google.check());
+
+  app.delete('/api/connections/google', async (req, reply) => {
+    await req.desk.google.disconnect();
+    return reply.status(204).send();
+  });
+
   // ── views, reports & exports ──────────────────────────────────────────────
   app.get('/api/views', async (req) => req.desk.views.list());
 
@@ -362,6 +419,24 @@ async function exportName(
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
   return `offerdesk-${slug || 'view'}-${isoDate(Date.now())}`;
+}
+
+const GOOGLE_CALLBACK = '/api/connections/google/callback';
+
+/**
+ * The origin the browser sees, for OAuth redirect URIs. `OFFERDESK_PUBLIC_URL`
+ * pins it; otherwise the proxy's forwarded headers (Vercel), else the Host
+ * header (local, including through Vite's proxy). Google only redirects to
+ * URIs registered on the OAuth client, so a spoofed header goes nowhere.
+ */
+function publicOrigin(req: FastifyRequest): string {
+  const pinned = process.env.OFFERDESK_PUBLIC_URL;
+  if (pinned) return pinned.replace(/\/+$/, '');
+  const first = (h: string | string[] | undefined) =>
+    (Array.isArray(h) ? h[0] : h)?.split(',')[0]?.trim();
+  const proto = first(req.headers['x-forwarded-proto']) ?? req.protocol;
+  const host = first(req.headers['x-forwarded-host']) ?? req.headers.host;
+  return `${proto}://${host}`;
 }
 
 function uploadBytes(body: unknown): Uint8Array {

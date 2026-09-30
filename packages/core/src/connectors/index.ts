@@ -7,6 +7,7 @@ export {
   MemoryCredentialStore,
 } from './credentials.js';
 export { EncryptedDbCredentialStore, parseCredentialsKey } from './encrypted-credentials.js';
+export * from './google/index.js';
 export type {
   Capability,
   Connection,

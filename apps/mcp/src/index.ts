@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { fileStoreFromEnv, loadConfig, Offerdesk } from '@offerdesk/core';
+import { loadConfig, Offerdesk } from '@offerdesk/core';
 import { createServer } from './server.js';
 
 /**
@@ -18,12 +18,7 @@ const envFile = process.argv[2];
 if (envFile) process.loadEnvFile(envFile);
 
 const cfg = loadConfig();
-const desk = await Offerdesk.open(cfg.dbUrl, {
-  authToken: cfg.dbAuthToken,
-  followUpAfterDays: cfg.followUpAfterDays,
-  workspaceId: cfg.workspaceId,
-  files: fileStoreFromEnv(cfg),
-});
+const desk = await Offerdesk.fromConfig(cfg, { workspaceId: cfg.workspaceId });
 const server = createServer(desk);
 
 const shutdown = async () => {

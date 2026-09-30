@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fileStoreFromEnv, loadConfig, Offerdesk, REPO_ROOT, seedDemo } from '@offerdesk/core';
+import { loadConfig, Offerdesk, REPO_ROOT, seedDemo } from '@offerdesk/core';
 import { buildServer } from './app.js';
 
 const USAGE = `offerdesk <command>
@@ -20,11 +20,7 @@ async function main(argv: string[]): Promise<void> {
   switch (command) {
     case 'serve': {
       const cfg = loadConfig();
-      const desk = await Offerdesk.open(cfg.dbUrl, {
-        authToken: cfg.dbAuthToken,
-        followUpAfterDays: cfg.followUpAfterDays,
-        files: fileStoreFromEnv(cfg),
-      });
+      const desk = await Offerdesk.fromConfig(cfg);
       const app = buildServer(desk, {
         webRoot: resolve(REPO_ROOT, 'apps/web/dist'),
         logger: true,

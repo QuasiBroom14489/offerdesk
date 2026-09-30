@@ -260,3 +260,36 @@ export const useDetachDocument = () =>
 export function fileUrl(versionId: string, download = false): string {
   return `/api/documents/versions/${versionId}/file${download ? '?download=1' : ''}`;
 }
+
+// ── connections (ADR 0007) ─────────────────────────────────────────────────
+export interface GoogleStatus {
+  available: boolean;
+  status: 'disconnected' | 'connected' | 'error';
+  email: string | null;
+  lastError: string | null;
+}
+
+export const useConnections = () =>
+  useQuery({
+    queryKey: ['connections'],
+    queryFn: () => request<{ google: GoogleStatus }>('GET', '/api/connections'),
+  });
+
+/** Leaves the app for Google's consent screen; Google redirects back to /settings. */
+export const useConnectGoogle = () =>
+  useMutation({
+    mutationFn: () => request<{ url: string }>('POST', '/api/connections/google/start'),
+    onSuccess: ({ url }) => window.location.assign(url),
+  });
+
+export const useCheckGoogle = () =>
+  useMutation({
+    mutationFn: () => request<GoogleStatus>('POST', '/api/connections/google/check'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connections'] }),
+  });
+
+export const useDisconnectGoogle = () =>
+  useMutation({
+    mutationFn: () => request<unknown>('DELETE', '/api/connections/google'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connections'] }),
+  });

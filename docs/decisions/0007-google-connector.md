@@ -57,5 +57,10 @@ hosted database. Both need the same Google tokens.
   OfferDesk created or the user picked.
 - A public launch keeps these scopes with no security assessment. Gmail
   (restricted) is the connector that will need CASA.
+- Google works on the production domain and on `localhost` (ports 4417 and
+  5417), the redirect URIs registered on the OAuth client. Preview deployments
+  get their own URLs, so Google is unavailable there by design.
+- `OFFERDESK_PUBLIC_URL` pins the origin used for redirect URIs; otherwise it
+  comes from the forwarded host (Vercel) or the Host header (local).
 - One Google Cloud project and a Picker API key (restricted by HTTP referrer)
   are one-time setup, documented in the README.

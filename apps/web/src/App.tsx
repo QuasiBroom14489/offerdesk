@@ -11,6 +11,7 @@ import { Board } from './pages/Board';
 import { Documents } from './pages/Documents';
 import { Home } from './pages/Home';
 import { People, Person } from './pages/People';
+import { Settings } from './pages/Settings';
 
 const NAV = [
   { path: '/', label: 'Home', key: 'H' },
@@ -18,6 +19,7 @@ const NAV = [
   { path: '/applications', label: 'Applications', key: 'A' },
   { path: '/people', label: 'People', key: 'P' },
   { path: '/documents', label: 'Documents', key: 'D' },
+  { path: '/settings', label: 'Settings', key: 'S' },
 ];
 
 export function App() {
@@ -37,6 +39,7 @@ export function App() {
       'g a': () => navigate('/applications'),
       'g p': () => navigate('/people'),
       'g d': () => navigate('/documents'),
+      'g s': () => navigate('/settings'),
     },
     !anyDialog,
   );
@@ -98,6 +101,7 @@ export function App() {
           <Route path="/people" component={() => <People onNew={openNewContact} />} />
           <Route path="/people/:id">{(p) => <Person id={p.id} />}</Route>
           <Route path="/documents" component={Documents} />
+          <Route path="/settings" component={Settings} />
           <Route>
             <p className="text-muted">
               There’s nothing at this address.{' '}

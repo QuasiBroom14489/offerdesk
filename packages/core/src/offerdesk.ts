@@ -20,13 +20,23 @@ import {
   ViewSpec,
   type ViewSpecInput,
 } from '@offerdesk/shared';
+import type { OfferdeskConfig } from './config.js';
 import { Connections } from './connectors/connections.js';
+import { credentialStoreFromEnv } from './connectors/credentials.js';
+import {
+  type Fetch,
+  type GoogleConfig,
+  GoogleService,
+  googleConfigFromEnv,
+} from './connectors/google/index.js';
+import type { CredentialStore } from './connectors/types.js';
 import { isoDate } from './dates.js';
 import { type Db, openDb } from './db.js';
 import { foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
 import { Documents, foldAttachments } from './documents.js';
 import { NotFoundError } from './errors.js';
 import { EventLog } from './events.js';
+import { fileStoreFromEnv } from './files/index.js';
 import type { FileStore } from './files/store.js';
 import { type RowFacts, rowFacts } from './reports/columns.js';
 import { toCsv, toXlsx } from './reports/export.js';
@@ -68,6 +78,12 @@ export interface OfferdeskOptions {
   workspaceId?: string;
   /** Where document bytes live (ADR 0006). Without one, the library is read-only metadata. */
   files?: FileStore | null;
+  /** Where connector secrets live (ADR 0007). Without one, no connector can connect. */
+  credentials?: CredentialStore | null;
+  /** The Google OAuth client (ADR 0007). Without one, Google is unavailable. */
+  google?: GoogleConfig | null;
+  /** HTTP for connectors; tests pass a fake. */
+  fetch?: Fetch;
 }
 
 /** A saved view by id, an ad-hoc spec, or both (the spec wins; the view names the export). */
@@ -97,6 +113,7 @@ export class Offerdesk {
   readonly connections: Connections;
   readonly views: Views;
   readonly documents: Documents;
+  readonly google: GoogleService;
   readonly workspaceId: string;
   private readonly followUpAfterDays: number;
   private readonly now: () => number;
@@ -112,6 +129,14 @@ export class Offerdesk {
     this.connections = new Connections(db, this.workspaceId, this.now);
     this.views = new Views(db, this.workspaceId, this.now);
     this.documents = new Documents(db, this.workspaceId, this.events, opts.files ?? null, this.now);
+    this.google = new GoogleService(
+      opts.google ?? null,
+      opts.credentials ?? null,
+      this.connections,
+      this.workspaceId,
+      opts.fetch ?? ((...args) => fetch(...args)),
+      this.now,
+    );
   }
 
   /** Open a file path, `:memory:`, or a `libsql://` URL (with its token). */
@@ -120,6 +145,26 @@ export class Offerdesk {
     opts?: OfferdeskOptions & { authToken?: string },
   ): Promise<Offerdesk> {
     return new Offerdesk(await openDb(location, opts?.authToken), opts);
+  }
+
+  /**
+   * Open what the config and environment describe: the database, file storage
+   * (ADR 0006), the credential store and the Google client (ADR 0007). The
+   * one place the servers and CLI turn environment into wiring.
+   */
+  static async fromConfig(
+    cfg: OfferdeskConfig,
+    opts: OfferdeskOptions = {},
+    env: NodeJS.ProcessEnv = process.env,
+  ): Promise<Offerdesk> {
+    const db = await openDb(cfg.dbUrl, cfg.dbAuthToken);
+    return new Offerdesk(db, {
+      followUpAfterDays: cfg.followUpAfterDays,
+      files: fileStoreFromEnv(cfg, env),
+      credentials: credentialStoreFromEnv(db, cfg, env),
+      google: googleConfigFromEnv(env),
+      ...opts,
+    });
   }
 
   /**

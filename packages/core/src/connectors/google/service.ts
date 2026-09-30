@@ -12,6 +12,7 @@ import {
   openState,
   revokeTokens,
 } from './oauth.js';
+import { GoogleSheets } from './sheets.js';
 
 const ABOUT_URL = 'https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)';
 
@@ -113,6 +114,11 @@ export class GoogleService {
     if (secret) await revokeTokens(this.fetchFn, secret as unknown as GoogleTokens);
     await store.delete(this.workspaceId, 'google');
     await this.connections.remove('google');
+  }
+
+  /** Spreadsheets in the workspace's Drive (ADR 0007). */
+  sheets(): GoogleSheets {
+    return new GoogleSheets(this.client());
   }
 
   /** Authorized API access. A dead grant marks the connection as needing a reconnect. */

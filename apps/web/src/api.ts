@@ -293,3 +293,31 @@ export const useDisconnectGoogle = () =>
     mutationFn: () => request<unknown>('DELETE', '/api/connections/google'),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connections'] }),
   });
+
+export interface ViewSheet {
+  viewId: string;
+  spreadsheetId: string;
+  url: string;
+  pushedAt: number;
+  changesSince: number;
+}
+
+export const useViewSheet = (viewId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: ['view-sheet', viewId],
+    queryFn: () => request<{ sheet: ViewSheet | null }>('GET', `/api/views/${viewId}/sheet`),
+    enabled,
+  });
+
+/** On demand only (ADR 0007): a sheet is a snapshot until pushed again. */
+export const usePushViewSheet = () =>
+  useMutation({
+    mutationFn: (viewId: string) =>
+      request<ViewSheet & { rows: number; created: boolean }>('POST', `/api/views/${viewId}/sheet`),
+    onSuccess: (_data, viewId) => {
+      queryClient.invalidateQueries({ queryKey: ['view-sheet', viewId] });
+      // A 409 may have marked Google as needing a reconnect; a success clears it.
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+    },
+    onError: () => queryClient.invalidateQueries({ queryKey: ['connections'] }),
+  });

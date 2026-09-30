@@ -135,3 +135,25 @@ describe('MCP server', () => {
     expect((await desk.getApplicationDetail(app.id)).documents).toEqual([]);
   });
 });
+
+describe('MCP push_view_to_sheet', () => {
+  it('explains that Google must be connected', async () => {
+    const desk = await Offerdesk.open(':memory:');
+    const server = createServer(desk);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0' });
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    const res = (await client.callTool({
+      name: 'push_view_to_sheet',
+      arguments: { view: 'Everything' },
+    })) as TextResult;
+    expect(res.isError).toBe(true);
+    expect(res.content[0]?.text).toMatch(/Google is not configured/);
+    const { tools } = await client.listTools();
+    expect(tools.find((t) => t.name === 'push_view_to_sheet')?.annotations?.openWorldHint).toBe(
+      true,
+    );
+    await client.close();
+    desk.close();
+  });
+});

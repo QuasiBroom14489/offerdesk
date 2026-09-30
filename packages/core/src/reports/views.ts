@@ -95,6 +95,12 @@ export class Views {
   async remove(id: string): Promise<void> {
     await this.editable(id);
     await this.db.run('DELETE FROM views WHERE workspace_id = ? AND id = ?', this.workspaceId, id);
+    // Its sheet, if any, stays in Drive; only the link goes.
+    await this.db.run(
+      'DELETE FROM view_sheets WHERE workspace_id = ? AND view_id = ?',
+      this.workspaceId,
+      id,
+    );
   }
 
   private async editable(id: string): Promise<SavedView> {

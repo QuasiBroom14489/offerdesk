@@ -9,3 +9,4 @@ export {
   OAuthStateError,
 } from './oauth.js';
 export { GoogleService, type GoogleStatus } from './service.js';
+export { FOLDER_NAME, GoogleSheets, type PushedSheet, sheetRequests, TAB_NAME } from './sheets.js';

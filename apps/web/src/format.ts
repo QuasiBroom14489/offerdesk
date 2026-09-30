@@ -13,6 +13,15 @@ export function relativeDays(ts: number, now = Date.now()): string {
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** "just now", "12 min ago", "3 h ago", then days: for things that change within a day. */
+export function timeAgo(ts: number, now = Date.now()): string {
+  const minutes = Math.round((now - ts) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 24 * 60) return `${Math.round(minutes / 60)} h ago`;
+  return relativeDays(ts, now);
+}
+
 /** Days until an ISO date (local midnight), negative if past. */
 export function daysUntil(iso: string, now = Date.now()): number {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number];

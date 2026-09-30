@@ -164,6 +164,21 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (workspace_id, provider)
   );
   `,
+  // v6 — views pushed to Google Sheets (ADR 0007). Keyed by view id so
+  // presets, which have no row in `views`, can be pushed too; this replaces
+  // the `views.sheet_id` column reserved in v3, which stays unused.
+  // `pushed_seq` is the last event seq in the sheet, for "N changes since".
+  `
+  CREATE TABLE view_sheets (
+    workspace_id   TEXT NOT NULL,
+    view_id        TEXT NOT NULL,
+    spreadsheet_id TEXT NOT NULL,
+    url            TEXT NOT NULL,
+    pushed_at      INTEGER NOT NULL,
+    pushed_seq     INTEGER NOT NULL,
+    PRIMARY KEY (workspace_id, view_id)
+  );
+  `,
 ];
 
 /** A value SQLite can bind. */

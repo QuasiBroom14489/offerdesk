@@ -12,20 +12,24 @@ import {
   type ViewSpec,
 } from '@offerdesk/shared';
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useSearchParams } from 'wouter';
+import { Link, useLocation, useSearchParams } from 'wouter';
 import {
+  type ApiError,
   exportUrl,
+  useConnections,
   useCreateView,
   useDeleteView,
+  usePushViewSheet,
   useReport,
   useUpdateView,
+  useViewSheet,
   useViews,
 } from '../api';
 import { buttonClass, Dialog, Field, inputClass, quietButtonClass } from '../components/Dialog';
 import { Popover } from '../components/Popover';
 import { Dot, Pill, StartFlag, StatusMark } from '../components/StatusMark';
 import { ColumnsPanel, type DraftFilter, FiltersPanel, isComplete } from '../components/ViewEditor';
-import { daysUntil, shortDate } from '../format';
+import { daysUntil, shortDate, timeAgo } from '../format';
 import { useHotkeys } from '../hotkeys';
 import { ServerDown } from './Home';
 
@@ -271,7 +275,7 @@ function ExportMenu({ viewId, spec }: { viewId: string; spec: ViewSpec | null })
   return (
     <Popover label="Export" title="Export these rows" align="right">
       {(close) => (
-        <div className="-m-1 flex flex-col">
+        <div className="-m-1 flex w-64 flex-col">
           <a href={exportUrl('xlsx', viewId, spec)} download onClick={close} className={item}>
             Excel workbook
             <span className="text-xs text-faint">Typed columns, colored statuses</span>
@@ -280,13 +284,85 @@ function ExportMenu({ viewId, spec }: { viewId: string; spec: ViewSpec | null })
             CSV
             <span className="text-xs text-faint">Opens anywhere</span>
           </a>
-          <span className={`${item} cursor-not-allowed text-faint hover:bg-transparent`}>
-            Google Sheet
-            <span className="text-xs">Connect Google to keep a live copy</span>
-          </span>
+          <div aria-hidden className="mx-2 my-1 h-px bg-line" />
+          <SheetItem viewId={viewId} edited={spec !== null} />
         </div>
       )}
     </Popover>
+  );
+}
+
+/** The view's Google Sheet: create it, open it, or bring it up to date. */
+function SheetItem({ viewId, edited }: { viewId: string; edited: boolean }) {
+  const connections = useConnections();
+  const google = connections.data?.google;
+  const connected = google?.status === 'connected';
+  const sheet = useViewSheet(viewId, connected);
+  const push = usePushViewSheet();
+  const linked = sheet.data?.sheet ?? null;
+  const pad = 'flex flex-col gap-1 px-2 py-1.5';
+
+  if (!google?.available) {
+    return (
+      <span className={`${pad} text-faint`}>
+        Google Sheet
+        <span className="text-xs">Google isn’t set up on this deployment</span>
+      </span>
+    );
+  }
+  if (!connected) {
+    return (
+      <Link href="/settings" className="flex flex-col rounded px-2 py-1.5 hover:bg-sunken">
+        Google Sheet
+        <span className="text-xs text-faint">
+          {google.status === 'error'
+            ? 'Reconnect Google in Settings'
+            : 'Connect Google in Settings'}
+        </span>
+      </Link>
+    );
+  }
+
+  const failure = push.error as ApiError | null;
+  const busy = push.isPending || sheet.isPending;
+  return (
+    <div className={pad}>
+      {linked ? (
+        <a href={linked.url} target="_blank" rel="noreferrer" className="hover:underline">
+          Google Sheet ↗
+        </a>
+      ) : (
+        <span>Google Sheet</span>
+      )}
+      <span className="flex items-center gap-1.5 text-xs text-faint">
+        {linked ? (
+          <>
+            <Dot signal={linked.changesSince === 0 ? 'green' : 'yellow'} />
+            {linked.changesSince === 0
+              ? `Up to date · updated ${timeAgo(linked.pushedAt)}`
+              : `Updated ${timeAgo(linked.pushedAt)} · ${linked.changesSince} ${
+                  linked.changesSince === 1 ? 'change' : 'changes'
+                } since`}
+          </>
+        ) : (
+          'A copy in your Drive’s OfferDesk folder'
+        )}
+      </span>
+      {edited && <span className="text-xs text-faint">Uses the saved view, not your edits.</span>}
+      {failure && (
+        <span className="text-xs text-muted">
+          {failure.status === 409 ? 'Google needs reconnecting in Settings.' : failure.message}
+        </span>
+      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => push.mutate(viewId)}
+        className={`${quietButtonClass} mt-1 self-start`}
+      >
+        {push.isPending ? 'Updating…' : linked ? 'Update now' : 'Create sheet'}
+      </button>
+    </div>
   );
 }
 

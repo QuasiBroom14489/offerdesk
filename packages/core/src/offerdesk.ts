@@ -42,6 +42,7 @@ import { type RowFacts, rowFacts } from './reports/columns.js';
 import { toCsv, toXlsx } from './reports/export.js';
 import { DEFAULT_VIEW_ID } from './reports/presets.js';
 import { runView } from './reports/run.js';
+import { type ViewSheet, ViewSheets } from './reports/view-sheets.js';
 import { Views } from './reports/views.js';
 
 interface ApplicationRow {
@@ -114,6 +115,7 @@ export class Offerdesk {
   readonly views: Views;
   readonly documents: Documents;
   readonly google: GoogleService;
+  readonly viewSheets: ViewSheets;
   readonly workspaceId: string;
   private readonly followUpAfterDays: number;
   private readonly now: () => number;
@@ -129,6 +131,7 @@ export class Offerdesk {
     this.connections = new Connections(db, this.workspaceId, this.now);
     this.views = new Views(db, this.workspaceId, this.now);
     this.documents = new Documents(db, this.workspaceId, this.events, opts.files ?? null, this.now);
+    this.viewSheets = new ViewSheets(db, this.workspaceId);
     this.google = new GoogleService(
       opts.google ?? null,
       opts.credentials ?? null,
@@ -640,6 +643,39 @@ export class Offerdesk {
 
   async exportXlsx(input: ReportInput = {}): Promise<Buffer> {
     return toXlsx(await this.report(input));
+  }
+
+  /** A view's Google Sheet and how stale it is, or null if it was never pushed. */
+  async viewSheet(viewId: string): Promise<ViewSheet | null> {
+    await this.views.get(viewId);
+    return this.viewSheets.get(viewId);
+  }
+
+  /**
+   * Push a saved view (or preset) to its Google Sheet, creating the sheet in
+   * the `OfferDesk` Drive folder the first time, or again if it was deleted.
+   * On demand only: a sheet is a snapshot with a "changes since" count
+   * (ADR 0007 amendment).
+   */
+  async pushViewToSheet(viewId: string): Promise<ViewSheet & { rows: number; created: boolean }> {
+    const view = await this.views.get(viewId);
+    const sheets = this.google.sheets();
+    // Read the seq before the rows, so a change landing mid-push counts as "since".
+    const seq = await this.viewSheets.latestSeq();
+    const report = await this.report({ viewId });
+    const linked = await this.viewSheets.get(viewId);
+    const existing = linked ? await sheets.find(linked.spreadsheetId) : null;
+    const target = existing ?? (await sheets.create(`OfferDesk · ${view.name}`));
+    await sheets.write(target.spreadsheetId, report);
+    await this.viewSheets.save(viewId, target, this.now(), seq);
+    const saved = (await this.viewSheets.get(viewId)) as ViewSheet;
+    return { ...saved, rows: report.rows.length, created: existing === null };
+  }
+
+  /** Stop pushing a view. The spreadsheet stays in Drive. */
+  async unlinkViewSheet(viewId: string): Promise<void> {
+    await this.views.get(viewId);
+    await this.viewSheets.remove(viewId);
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────

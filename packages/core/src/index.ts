@@ -17,3 +17,4 @@ export { EventLog } from './events.js';
 export * from './files/index.js';
 export { normalizeUrl, Offerdesk, type OfferdeskOptions, type ReportInput } from './offerdesk.js';
 export * from './reports/index.js';
+export { type ViewSheet, ViewSheets } from './reports/view-sheets.js';

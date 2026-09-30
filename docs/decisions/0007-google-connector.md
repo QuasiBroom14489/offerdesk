@@ -37,12 +37,23 @@ hosted database. Both need the same Google tokens.
   for a handful of REST calls. The connector calls Drive v3, Sheets v4 and the
   token endpoint with `fetch`, injected so tests fake Google entirely. It lives
   in `packages/core/src/connectors/google/`.
-- **A pushed view is a full rewrite.** The first push creates a spreadsheet in
-  an `OfferDesk/` Drive folder and stores its id in `views.sheet_id`; later
-  pushes clear and rewrite the tab. There's no diffing and no drift, and the
-  sheet is a projection like every other view. After any change the workspace's
-  pushed views are rewritten a few seconds later (`waitUntil` on Vercel), and
-  "Push now" is always available.
+- **A pushed view is a full rewrite, on demand.** The first push creates a
+  spreadsheet in an `OfferDesk/` Drive folder; later pushes rewrite its
+  `OfferDesk` tab in one `batchUpdate`: the grid is resized to fit, cleared,
+  and written with typed cells (real dates and numbers, links, status tints
+  matching the Excel export). Text always goes in as a literal string, never a
+  formula. Other tabs are the user's and are never touched. A trashed or
+  deleted sheet is recreated on the next push.
+- **No auto-push** *(amended 2026-09-30, before shipping)*. The plan was to
+  rewrite every pushed view a few seconds after each change. Instead a sheet is
+  a snapshot: the export menu shows "updated 3 h ago · 4 changes since" (events
+  since the push) and an "Update now" button, and the MCP tool
+  `push_view_to_sheet` does the same for Vesper. That means no background
+  work, no Google API calls per edit, and nothing to debounce on serverless.
+- **`view_sheets` (migration 6)** links a view id to its spreadsheet, so
+  presets, which have no `views` row, can be pushed. The `views.sheet_id`
+  column reserved in migration 3 stays unused. Deleting a saved view drops the
+  link; the spreadsheet stays in Drive.
 - **Drive files are snapshotted.** A picked file becomes a new document version
   (source `drive`, with its Drive file id), keeping ADR 0006's immutable
   versions; "Save to Drive" copies a version out.

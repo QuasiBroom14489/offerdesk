@@ -124,3 +124,35 @@ describe('connections API', () => {
     bare.close();
   });
 });
+
+describe('view sheets API', () => {
+  it('reports no sheet, maps a dead Google grant to 409, and 503s without Google', async () => {
+    const credentials = new MemoryCredentialStore();
+    const desk = await Offerdesk.open(':memory:', {
+      credentials,
+      google: { clientId: 'cid', clientSecret: 'secret' },
+      fetch: fakeGoogle,
+    });
+    const app = buildServer(desk);
+
+    const none = await app.inject({ method: 'GET', url: '/api/views/everything/sheet' });
+    expect(none.json()).toEqual({ sheet: null });
+    expect((await app.inject({ method: 'GET', url: '/api/views/nope/sheet' })).statusCode).toBe(
+      404,
+    );
+
+    // Google set up here but never connected: reconnect, not sign in.
+    const push = await app.inject({ method: 'POST', url: '/api/views/everything/sheet' });
+    expect(push.statusCode).toBe(409);
+    expect(push.json()).toMatchObject({ reconnect: 'google' });
+
+    const bare = await Offerdesk.open(':memory:');
+    const bareApp = buildServer(bare);
+    const off = await bareApp.inject({ method: 'POST', url: '/api/views/everything/sheet' });
+    expect(off.statusCode).toBe(503);
+
+    await Promise.all([app.close(), bareApp.close()]);
+    desk.close();
+    bare.close();
+  });
+});

@@ -3,6 +3,7 @@ import { clerkPlugin, getAuth } from '@clerk/fastify';
 import fastifyStatic from '@fastify/static';
 import {
   ConflictError,
+  GoogleApiError,
   GoogleAuthError,
   isoDate,
   NotFoundError,
@@ -110,6 +111,13 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
     }
     if (err instanceof UnavailableError) {
       return reply.status(503).send({ error: err.message });
+    }
+    // Not 401: that means "sign in to OfferDesk"; this means "reconnect Google".
+    if (err instanceof GoogleAuthError) {
+      return reply.status(409).send({ error: err.message, reconnect: 'google' });
+    }
+    if (err instanceof GoogleApiError) {
+      return reply.status(502).send({ error: `Google: ${err.message}` });
     }
     // Fastify's own client errors: unsupported media type, body too large, bad JSON.
     const status = (err as { statusCode?: number }).statusCode;
@@ -372,6 +380,23 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
   });
 
   app.post('/api/report', async (req) => req.desk.report(ReportBody.parse(req.body)));
+
+  // A view's Google Sheet: its status, an on-demand push, and unlinking (ADR 0007).
+  app.get('/api/views/:id/sheet', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return { sheet: await req.desk.viewSheet(id) };
+  });
+
+  app.post('/api/views/:id/sheet', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return req.desk.pushViewToSheet(id);
+  });
+
+  app.delete('/api/views/:id/sheet', async (req, reply) => {
+    const { id } = IdParams.parse(req.params);
+    await req.desk.unlinkViewSheet(id);
+    return reply.status(204).send();
+  });
 
   app.get('/api/export.csv', async (req, reply) => {
     const { view, spec } = ExportQuery.parse(req.query);

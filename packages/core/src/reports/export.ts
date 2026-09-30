@@ -27,7 +27,7 @@ export function toCsv(report: Report): string {
 }
 
 /** "Waiting (days)": units go in the header so cells stay plain numbers. */
-const headerText = (c: ColumnMeta): string => (c.unit ? `${c.label} (${c.unit})` : c.label);
+export const headerText = (c: ColumnMeta): string => (c.unit ? `${c.label} (${c.unit})` : c.label);
 
 function csvText(column: ColumnMeta, cell: Cell): string {
   const text = cellText(column, cell);
@@ -44,7 +44,7 @@ function csvField(text: string): string {
 }
 
 /** Same palette as the dashboard (apps/web/src/styles.css), as ARGB. */
-const SIGNAL_FILL: Record<Signal, { fill: string; font: string } | null> = {
+export const SIGNAL_FILL: Record<Signal, { fill: string; font: string } | null> = {
   green: { fill: 'FFEAF7EF', font: 'FF1F9D55' },
   yellow: { fill: 'FFFDF6E3', font: 'FFB7791F' },
   red: { fill: 'FFFDEEEE', font: 'FFD64545' },
@@ -109,7 +109,7 @@ const WIDTH: Partial<Record<ColumnMeta['type'], number>> = {
   signal: 16,
 };
 
-function signalOf(column: ColumnMeta, cell: Cell): Signal {
+export function signalOf(column: ColumnMeta, cell: Cell): Signal {
   if (cell === null) return 'grey';
   if (column.type === 'status') return STATUS_SIGNAL[cell as Status] ?? 'grey';
   if (column.type === 'signal') return cell as Signal;

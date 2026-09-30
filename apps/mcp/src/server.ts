@@ -327,6 +327,35 @@ export function createServer(desk: Offerdesk): McpServer {
     },
   );
 
+  server.registerTool(
+    'push_view_to_sheet',
+    {
+      title: 'Push a table view to Google Sheets',
+      description:
+        "Write a table view to its Google Sheet in the user's OfferDesk Drive folder, creating the sheet the first time. Sheets update only when pushed, so use this when the user wants the sheet current. Returns the sheet URL. Needs Google connected in OfferDesk Settings.",
+      inputSchema: { view: z.string().min(1).describe('View name or id') },
+      // Rewrites only OfferDesk's own tab, in the user's Google Drive.
+      annotations: { ...CHANGE, openWorldHint: true },
+    },
+    async ({ view }) => {
+      try {
+        const v = await findView(desk, view);
+        const pushed = await desk.pushViewToSheet(v.id);
+        const verb = pushed.created ? 'Created' : 'Updated';
+        return reply(
+          `${verb} the "${v.name}" sheet (${plural(pushed.rows, 'row')}): ${pushed.url}`,
+          {
+            url: pushed.url,
+            rows: pushed.rows,
+            created: pushed.created,
+          },
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
   // ── changes ─────────────────────────────────────────────────────────────
   server.registerTool(
     'add_application',

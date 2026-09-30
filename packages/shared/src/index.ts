@@ -1,3 +1,4 @@
+export * from './documents.js';
 export * from './entities.js';
 export * from './events.js';
 export * from './reports.js';

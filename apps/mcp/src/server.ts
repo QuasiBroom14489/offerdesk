@@ -13,6 +13,7 @@ import {
 import {
   type Application,
   cellText,
+  DOCUMENT_KIND_LABELS,
   FLAGS,
   type Report,
   type SavedView,
@@ -435,6 +436,56 @@ export function createServer(desk: Offerdesk): McpServer {
     }),
   );
 
+  server.registerTool(
+    'list_documents',
+    {
+      title: 'List documents',
+      description:
+        'The documents library: resumes, cover letters, transcripts and other files, each with its versions (newest first) and the applications it is attached to.',
+      inputSchema: { archived: z.boolean().optional() },
+      annotations: READ,
+    },
+    safe(async ({ archived }) => {
+      const docs = await desk.documents.list({ archived });
+      const lines = docs.map(
+        (d) =>
+          `${d.name} (${DOCUMENT_KIND_LABELS[d.kind].toLowerCase()}, v${d.versions[0]?.version}, ${plural(d.applicationIds.length, 'application')})`,
+      );
+      return reply(
+        docs.length
+          ? `${plural(docs.length, 'document')}:\n${lines.join('\n')}`
+          : 'No documents yet.',
+        docs,
+      );
+    }),
+  );
+
+  server.registerTool(
+    'attach_document',
+    {
+      title: 'Attach a document',
+      description:
+        'Attach a library document to an application, pinned to the version that was sent (the latest unless versionId is given). Use detach to remove it.',
+      inputSchema: {
+        applicationId: z.string(),
+        documentId: z.string(),
+        versionId: z.string().optional(),
+        detach: z.boolean().optional(),
+      },
+      annotations: CHANGE,
+    },
+    safe(async ({ applicationId, documentId, versionId, detach }) => {
+      const doc = await desk.documents.get(documentId);
+      const app = detach
+        ? await desk.detachDocument(applicationId, documentId)
+        : await desk.attachDocument(applicationId, documentId, { versionId });
+      const where = `${app.companyName} — ${app.role}`;
+      return reply(
+        detach ? `Detached ${doc.name} from ${where}.` : `Attached ${doc.name} to ${where}.`,
+      );
+    }),
+  );
+
   return server;
 }
 
@@ -447,6 +498,7 @@ export const AUTO_APPROVABLE_TOOLS = [
   'deadlines',
   'list_views',
   'run_view',
+  'list_documents',
   'capture_posting',
 ] as const;
 

@@ -27,7 +27,13 @@ export const EventPayloads = {
     round: z.string().optional(),
     location: z.string().optional(),
   }),
-  'document.attached': z.object({ documentId: z.string(), kind: z.string() }),
+  /** `versionId` pins the revision that went out; events before ADR 0006 lack it. */
+  'document.attached': z.object({
+    documentId: z.string(),
+    kind: z.string(),
+    versionId: z.string().optional(),
+  }),
+  'document.detached': z.object({ documentId: z.string() }),
   'resume.generated': z.object({ resumeVersionId: z.string() }),
   'note.added': z.object({ text: z.string().min(1) }),
   /** A marker the user (or Vesper) put on an application, e.g. "get started on this". */

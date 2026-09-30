@@ -1,3 +1,4 @@
+import type { AttachedDocument } from './documents.js';
 import type { Application, Contact } from './entities.js';
 import type { AnyEvent } from './events.js';
 import type { Status } from './status.js';
@@ -57,6 +58,8 @@ export interface Dashboard {
 export interface ApplicationDetail extends Application {
   timeline: AnyEvent[];
   contacts: Contact[];
+  /** Documents currently attached, each pinned to the version that went out. */
+  documents: AttachedDocument[];
 }
 
 export interface ContactDetail extends Contact {

@@ -8,6 +8,7 @@ import { useHotkeys } from './hotkeys';
 import { ApplicationPage } from './pages/Application';
 import { ApplicationsTable } from './pages/ApplicationsTable';
 import { Board } from './pages/Board';
+import { Documents } from './pages/Documents';
 import { Home } from './pages/Home';
 import { People, Person } from './pages/People';
 
@@ -16,6 +17,7 @@ const NAV = [
   { path: '/board', label: 'Board', key: 'B' },
   { path: '/applications', label: 'Applications', key: 'A' },
   { path: '/people', label: 'People', key: 'P' },
+  { path: '/documents', label: 'Documents', key: 'D' },
 ];
 
 export function App() {
@@ -34,6 +36,7 @@ export function App() {
       'g b': () => navigate('/board'),
       'g a': () => navigate('/applications'),
       'g p': () => navigate('/people'),
+      'g d': () => navigate('/documents'),
     },
     !anyDialog,
   );
@@ -94,6 +97,7 @@ export function App() {
           <Route path="/applications/:id">{(p) => <ApplicationPage id={p.id} />}</Route>
           <Route path="/people" component={() => <People onNew={openNewContact} />} />
           <Route path="/people/:id">{(p) => <Person id={p.id} />}</Route>
+          <Route path="/documents" component={Documents} />
           <Route>
             <p className="text-muted">
               There’s nothing at this address.{' '}

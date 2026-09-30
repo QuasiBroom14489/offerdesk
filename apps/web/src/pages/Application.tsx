@@ -1,7 +1,22 @@
-import { STATUS_LABELS, STATUSES, type Status } from '@offerdesk/shared';
+import {
+  type ApplicationDetail,
+  DOCUMENT_KIND_LABELS,
+  STATUS_LABELS,
+  STATUSES,
+  type Status,
+} from '@offerdesk/shared';
 import { type FormEvent, useState } from 'react';
 import { Link } from 'wouter';
-import { useAddNote, useApplication, useSetFlag, useSetStatus } from '../api';
+import {
+  fileUrl,
+  useAddNote,
+  useApplication,
+  useAttachDocument,
+  useDetachDocument,
+  useDocuments,
+  useSetFlag,
+  useSetStatus,
+} from '../api';
 import { buttonClass, inputClass, quietButtonClass } from '../components/Dialog';
 import { LogTouchForm } from '../components/LogTouchForm';
 import { NewContactDialog } from '../components/NewContactDialog';
@@ -147,6 +162,8 @@ export function ApplicationPage({ id }: { id: string }) {
             ))}
           </dl>
 
+          <AttachedDocuments app={app} />
+
           <section>
             <h2 className="mb-2 flex items-center justify-between text-sm font-medium text-muted">
               People at {app.companyName}
@@ -181,5 +198,87 @@ export function ApplicationPage({ id }: { id: string }) {
         defaultCompany={app.companyName}
       />
     </div>
+  );
+}
+
+/** What went out with this application, pinned to the version that was sent. */
+function AttachedDocuments({ app }: { app: ApplicationDetail }) {
+  const library = useDocuments();
+  const attach = useAttachDocument();
+  const detach = useDetachDocument();
+  const attached = new Map(app.documents.map((d) => [d.document.id, d]));
+  const available = (library.data ?? []).filter((d) => !attached.has(d.id));
+
+  return (
+    <section>
+      <h2 className="mb-2 text-sm font-medium text-muted">Documents sent</h2>
+      {app.documents.length === 0 ? (
+        <p className="text-sm text-faint">Nothing attached yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {app.documents.map(({ document: d, version: v }) => {
+            const newer = library.data?.find((x) => x.id === d.id)?.versions[0];
+            return (
+              <li key={d.id} className="text-sm">
+                <div className="flex items-baseline justify-between gap-2">
+                  <a
+                    href={fileUrl(v.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 truncate font-medium hover:text-accent"
+                  >
+                    {d.name}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => detach.mutate({ id: app.id, documentId: d.id })}
+                    className="shrink-0 text-xs text-faint hover:text-fg"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <p className="text-muted">
+                  {DOCUMENT_KIND_LABELS[d.kind]} · v{v.version}
+                  {newer && newer.version > v.version && (
+                    <>
+                      {' · '}
+                      <button
+                        type="button"
+                        onClick={() => attach.mutate({ id: app.id, documentId: d.id })}
+                        className="underline hover:text-fg"
+                      >
+                        use v{newer.version}
+                      </button>
+                    </>
+                  )}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {available.length > 0 && (
+        <select
+          aria-label="Attach a document"
+          value=""
+          onChange={(e) => {
+            if (e.target.value) attach.mutate({ id: app.id, documentId: e.target.value });
+          }}
+          className={`${inputClass} mt-3 w-full text-sm`}
+        >
+          <option value="">Attach from library…</option>
+          {available.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name} (v{d.versions[0]?.version})
+            </option>
+          ))}
+        </select>
+      )}
+      {library.data?.length === 0 && (
+        <Link href="/documents" className={`${quietButtonClass} mt-3`}>
+          Upload a document
+        </Link>
+      )}
+    </section>
   );
 }

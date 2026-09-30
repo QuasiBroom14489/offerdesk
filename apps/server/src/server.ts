@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { loadConfig, Offerdesk } from '@offerdesk/core';
+import { fileStoreFromEnv, loadConfig, Offerdesk } from '@offerdesk/core';
 import { buildServer } from './app.js';
 
 /**
@@ -7,12 +7,14 @@ import { buildServer } from './app.js';
  * request and response; Fastify handles them through its own HTTP server once
  * it's ready. The web UI is a separate service, so no webRoot here. The
  * database and Clerk keys come from the environment the Marketplace
- * integrations inject: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, CLERK_*.
+ * integrations inject: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, CLERK_*, and
+ * BLOB_STORE_ID once a private Blob store is connected (ADR 0006).
  */
 const cfg = loadConfig();
 const desk = await Offerdesk.open(cfg.dbUrl, {
   authToken: cfg.dbAuthToken,
   followUpAfterDays: cfg.followUpAfterDays,
+  files: fileStoreFromEnv(cfg),
 });
 const app = buildServer(desk, { logger: true, auth: 'clerk' });
 const ready = app.ready();

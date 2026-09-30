@@ -84,6 +84,13 @@ export class EventLog {
     return this.select('AND contact_id = ? ORDER BY ts, seq', contactId);
   }
 
+  ofKinds(...kinds: EventKind[]): Promise<AnyEvent[]> {
+    return this.select(
+      `AND kind IN (${kinds.map(() => '?').join(', ')}) ORDER BY ts, seq`,
+      ...kinds,
+    );
+  }
+
   recent(limit: number): Promise<AnyEvent[]> {
     return this.select('ORDER BY ts DESC, seq DESC LIMIT ?', limit);
   }

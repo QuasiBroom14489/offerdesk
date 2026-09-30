@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { Offerdesk } from '@offerdesk/core';
+import { MemoryFileStore, Offerdesk } from '@offerdesk/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUTO_APPROVABLE_TOOLS, createServer } from '../src/server.js';
 
@@ -14,7 +14,7 @@ describe('MCP server', () => {
   let client: Client;
 
   beforeEach(async () => {
-    desk = await Offerdesk.open(':memory:');
+    desk = await Offerdesk.open(':memory:', { files: new MemoryFileStore() });
     const server = createServer(desk);
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: 'test', version: '0' });
@@ -108,5 +108,30 @@ describe('MCP server', () => {
 
     const relative = await call('export_view', { view: 'waiting', path: 'out.csv' });
     expect(relative.isError).toBe(true);
+  });
+
+  it('lists documents and attaches one to an application', async () => {
+    const app = await desk.addApplication({ company: 'Acme', role: 'Intern' });
+    const doc = await desk.documents.create(
+      { name: 'Resume — data', kind: 'resume' },
+      new TextEncoder().encode('pdf'),
+      { filename: 'resume.pdf', contentType: 'application/pdf' },
+    );
+
+    const attached = await call('attach_document', { applicationId: app.id, documentId: doc.id });
+    expect(attached.content[0]?.text).toBe('Attached Resume — data to Acme — Intern.');
+
+    const listed = await call('list_documents');
+    expect(listed.content[0]?.text).toMatch(
+      /^1 document:\nResume — data \(resume, v1, 1 application\)/,
+    );
+
+    const detached = await call('attach_document', {
+      applicationId: app.id,
+      documentId: doc.id,
+      detach: true,
+    });
+    expect(detached.content[0]?.text).toBe('Detached Resume — data from Acme — Intern.');
+    expect((await desk.getApplicationDetail(app.id)).documents).toEqual([]);
   });
 });

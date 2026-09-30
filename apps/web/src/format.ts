@@ -31,6 +31,13 @@ export function shortDate(iso: string): string {
   });
 }
 
+/** "84 KB", "1.2 MB". */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 export function percent(n: number | null): string {
   return n === null ? '—' : `${Math.round(n * 100)}%`;
 }
@@ -64,7 +71,9 @@ export function describeEvent(e: AnyEvent): string {
     case 'interview.scheduled':
       return `Interview scheduled${e.payload.round ? ` (${e.payload.round})` : ''} for ${new Date(e.payload.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
     case 'document.attached':
-      return `Attached a ${e.payload.kind}`;
+      return `Attached a ${e.payload.kind.replace('-', ' ')}`;
+    case 'document.detached':
+      return 'Removed a document';
     case 'resume.generated':
       return 'Generated a tailored resume';
     case 'note.added':

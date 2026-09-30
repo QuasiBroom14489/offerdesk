@@ -24,8 +24,10 @@ import { Connections } from './connectors/connections.js';
 import { isoDate } from './dates.js';
 import { type Db, openDb } from './db.js';
 import { foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
+import { Documents, foldAttachments } from './documents.js';
 import { NotFoundError } from './errors.js';
 import { EventLog } from './events.js';
+import type { FileStore } from './files/store.js';
 import { type RowFacts, rowFacts } from './reports/columns.js';
 import { toCsv, toXlsx } from './reports/export.js';
 import { DEFAULT_VIEW_ID } from './reports/presets.js';
@@ -64,6 +66,8 @@ export interface OfferdeskOptions {
   now?: () => number;
   /** Tenant boundary. A local install is the single workspace 'local' (ADR 0002). */
   workspaceId?: string;
+  /** Where document bytes live (ADR 0006). Without one, the library is read-only metadata. */
+  files?: FileStore | null;
 }
 
 /** A saved view by id, an ad-hoc spec, or both (the spec wins; the view names the export). */
@@ -92,6 +96,7 @@ export class Offerdesk {
   readonly events: EventLog;
   readonly connections: Connections;
   readonly views: Views;
+  readonly documents: Documents;
   readonly workspaceId: string;
   private readonly followUpAfterDays: number;
   private readonly now: () => number;
@@ -106,6 +111,7 @@ export class Offerdesk {
     this.events = new EventLog(db, this.workspaceId);
     this.connections = new Connections(db, this.workspaceId, this.now);
     this.views = new Views(db, this.workspaceId, this.now);
+    this.documents = new Documents(db, this.workspaceId, this.events, opts.files ?? null, this.now);
   }
 
   /** Open a file path, `:memory:`, or a `libsql://` URL (with its token). */
@@ -331,7 +337,12 @@ export class Offerdesk {
     const companyContacts = (await this.listContacts()).filter(
       (c) => c.companyId === row.company_id || contactIds.has(c.id),
     );
-    return { ...toApplication(row, timeline), timeline, contacts: companyContacts };
+    return {
+      ...toApplication(row, timeline),
+      timeline,
+      contacts: companyContacts,
+      documents: await this.documents.attachedTo(id, timeline),
+    };
   }
 
   async setStatus(id: string, to: Status, at?: number): Promise<Application> {
@@ -374,6 +385,53 @@ export class Offerdesk {
   /** Applications with a deadline in the next `days` days that are still only saved. */
   async upcomingDeadlines(days = 14): Promise<Application[]> {
     return this.deadlinesOf(await this.listApplications(), days);
+  }
+
+  // ── documents ────────────────────────────────────────────────────────────
+
+  /**
+   * Attach a document to an application, pinned to a version (the latest by
+   * default). Attaching the same version again is a no-op; another version
+   * re-pins it.
+   */
+  async attachDocument(
+    applicationId: string,
+    documentId: string,
+    opts: { versionId?: string; source?: EventSource } = {},
+  ): Promise<Application> {
+    await this.requireApplication(applicationId);
+    const doc = await this.documents.get(documentId);
+    const version = opts.versionId
+      ? doc.versions.find((v) => v.id === opts.versionId)
+      : doc.versions[0];
+    if (!version) throw new NotFoundError('document version', opts.versionId ?? documentId);
+    const current = foldAttachments(await this.events.forApplication(applicationId))
+      .get(applicationId)
+      ?.get(documentId);
+    if (current?.versionId !== version.id) {
+      await this.events.append({
+        kind: 'document.attached',
+        applicationId,
+        payload: { documentId, kind: doc.kind, versionId: version.id },
+        ts: this.now(),
+        source: opts.source,
+      });
+    }
+    return this.getApplication(applicationId);
+  }
+
+  async detachDocument(applicationId: string, documentId: string): Promise<Application> {
+    const timeline = await this.events.forApplication(applicationId);
+    await this.requireApplication(applicationId);
+    if (foldAttachments(timeline).get(applicationId)?.has(documentId)) {
+      await this.events.append({
+        kind: 'document.detached',
+        applicationId,
+        payload: { documentId },
+        ts: this.now(),
+      });
+    }
+    return this.getApplication(applicationId);
   }
 
   // ── contacts & outreach ──────────────────────────────────────────────────

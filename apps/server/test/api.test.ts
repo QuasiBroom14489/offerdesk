@@ -1,4 +1,4 @@
-import { Offerdesk } from '@offerdesk/core';
+import { MemoryFileStore, Offerdesk } from '@offerdesk/core';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildServer } from '../src/app.js';
@@ -8,7 +8,7 @@ describe('REST API', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
-    desk = await Offerdesk.open(':memory:');
+    desk = await Offerdesk.open(':memory:', { files: new MemoryFileStore() });
     app = buildServer(desk);
   });
 
@@ -259,6 +259,98 @@ describe('REST API', () => {
       expect((await as('user_a', 'GET', '/api/applications')).json()).toHaveLength(1);
       // Nothing leaked into the local workspace either.
       expect(await desk.listApplications()).toEqual([]);
+    });
+  });
+
+  describe('documents', () => {
+    const upload = (url: string, body: string | Buffer, type = 'application/pdf') =>
+      app.inject({ method: 'POST', url, payload: body, headers: { 'content-type': type } });
+
+    it('uploads, versions, attaches and downloads a document', async () => {
+      const created = await upload(
+        '/api/documents?name=Resume&kind=resume&filename=r%C3%A9sum%C3%A9.pdf',
+        '%PDF-v1',
+      );
+      expect(created.statusCode).toBe(201);
+      const doc = created.json();
+      expect(doc).toMatchObject({ name: 'Resume', kind: 'resume' });
+      expect(doc.versions[0]).toMatchObject({ version: 1, filename: 'résumé.pdf', size: 7 });
+
+      const v2 = await upload(
+        `/api/documents/${doc.id}/versions?filename=r2.pdf&note=tighter`,
+        '%PDF-v2',
+      );
+      expect(v2.json().versions.map((v: { version: number }) => v.version)).toEqual([2, 1]);
+
+      const application = (
+        await app.inject({
+          method: 'POST',
+          url: '/api/applications',
+          payload: { company: 'Acme', role: 'Intern' },
+        })
+      ).json();
+      await app.inject({
+        method: 'POST',
+        url: `/api/applications/${application.id}/documents`,
+        payload: { documentId: doc.id },
+      });
+      const detail = (
+        await app.inject({ method: 'GET', url: `/api/applications/${application.id}` })
+      ).json();
+      expect(detail.documents[0].version.version).toBe(2);
+
+      const file = await app.inject({
+        method: 'GET',
+        url: `/api/documents/versions/${doc.versions[0].id}/file`,
+      });
+      expect(file.statusCode).toBe(200);
+      expect(file.body).toBe('%PDF-v1');
+      expect(file.headers['content-type']).toBe('application/pdf');
+      expect(file.headers['content-disposition']).toMatch(
+        /^inline; .*filename\*=UTF-8''r%C3%A9sum%C3%A9\.pdf/,
+      );
+
+      const removed = await app.inject({
+        method: 'DELETE',
+        url: `/api/applications/${application.id}/documents/${doc.id}`,
+      });
+      expect(removed.statusCode).toBe(200);
+    });
+
+    it('downloads anything a browser could run instead of opening it', async () => {
+      const doc = (
+        await upload('/api/documents?name=x&filename=x.html', '<script>1</script>', 'text/html')
+      ).json();
+      const file = await app.inject({
+        method: 'GET',
+        url: `/api/documents/versions/${doc.versions[0].id}/file`,
+      });
+      expect(file.headers['content-disposition']).toMatch(/^attachment;/);
+      expect(file.headers['content-security-policy']).toBe('sandbox');
+    });
+
+    it('rejects empty and oversized uploads, and keeps JSON routes JSON', async () => {
+      expect((await upload('/api/documents?name=x&filename=x.pdf', '')).statusCode).toBe(400);
+      const big = Buffer.alloc(4 * 1024 * 1024 + 1);
+      expect((await upload('/api/documents?name=x&filename=x.pdf', big)).statusCode).toBe(413);
+      const notJson = await upload('/api/applications', 'x', 'application/octet-stream');
+      expect(notJson.statusCode).toBe(415);
+    });
+
+    it('answers 503 when no file store is configured', async () => {
+      const bare = buildServer(await Offerdesk.open(':memory:'));
+      const res = await bare.inject({
+        method: 'POST',
+        url: '/api/documents?name=x&filename=x.pdf',
+        payload: 'x',
+        headers: { 'content-type': 'application/pdf' },
+      });
+      expect(res.statusCode).toBe(503);
+      expect((await bare.inject({ method: 'GET', url: '/api/health' })).json()).toEqual({
+        ok: true,
+        files: null,
+      });
+      await bare.close();
     });
   });
 });

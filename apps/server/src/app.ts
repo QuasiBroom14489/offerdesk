@@ -1,11 +1,20 @@
 import { existsSync } from 'node:fs';
 import { clerkPlugin, getAuth } from '@clerk/fastify';
 import fastifyStatic from '@fastify/static';
-import { ConflictError, isoDate, NotFoundError, type Offerdesk } from '@offerdesk/core';
+import {
+  ConflictError,
+  isoDate,
+  NotFoundError,
+  type Offerdesk,
+  UnavailableError,
+} from '@offerdesk/core';
 import {
   ApplicationPatch,
   CapturePosting,
+  DocumentKind,
+  DocumentPatch,
   FLAGS,
+  MAX_DOCUMENT_BYTES,
   NewApplication,
   NewContact,
   NewView,
@@ -44,6 +53,18 @@ const ExportQuery = z.object({
     .pipe(ViewSpec)
     .optional(),
 });
+
+/** Uploads are the raw file as the body; what describes it rides in the query string. */
+const UploadQuery = z.object({
+  filename: z.string().min(1),
+  note: z.string().optional(),
+});
+const NewDocumentQuery = UploadQuery.extend({
+  name: z.string().min(1),
+  kind: DocumentKind.optional(),
+});
+
+const INLINE_TYPES = /^(application\/pdf|image\/(png|jpeg|gif|webp)|text\/plain)(;|$)/i;
 
 const ResponseBody = OutreachBody.extend({
   channel: z.enum(['email', 'linkedin', 'phone', 'portal', 'other']),
@@ -85,6 +106,15 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
     if (err instanceof ConflictError) {
       return reply.status(409).send({ error: err.message });
     }
+    if (err instanceof UnavailableError) {
+      return reply.status(503).send({ error: err.message });
+    }
+    // Fastify's own client errors: unsupported media type, body too large, bad JSON.
+    const status = (err as { statusCode?: number }).statusCode;
+    if (status === 413) return reply.status(413).send({ error: 'the file is larger than 4 MB' });
+    if (status && status >= 400 && status < 500) {
+      return reply.status(status).send({ error: (err as Error).message });
+    }
     app.log.error(err);
     return reply.status(500).send({ error: 'internal error' });
   });
@@ -110,7 +140,8 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
     req.desk = workspace === base.workspaceId ? base : base.forWorkspace(workspace);
   });
 
-  app.get('/api/health', async () => ({ ok: true }));
+  /** `files` names the document store, or null when uploads aren't available here. */
+  app.get('/api/health', async () => ({ ok: true, files: base.documents.storage }));
 
   app.get('/api/dashboard', async (req) => req.desk.dashboard());
 
@@ -162,6 +193,82 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
       .object({ at: z.number(), round: z.string().optional(), location: z.string().optional() })
       .parse(req.body);
     return reply.status(201).send(await req.desk.scheduleInterview(id, body));
+  });
+
+  app.post('/api/applications/:id/documents', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    const { documentId, versionId } = z
+      .object({ documentId: z.string().min(1), versionId: z.string().min(1).optional() })
+      .parse(req.body);
+    return req.desk.attachDocument(id, documentId, { versionId });
+  });
+
+  app.delete('/api/applications/:id/documents/:documentId', async (req) => {
+    const { id, documentId } = IdParams.extend({ documentId: z.string().min(1) }).parse(req.params);
+    return req.desk.detachDocument(id, documentId);
+  });
+
+  // ── documents library (ADR 0006) ──────────────────────────────────────────
+  app.get('/api/documents', async (req) => {
+    const { archived } = z.object({ archived: z.enum(['0', '1']).optional() }).parse(req.query);
+    return req.desk.documents.list({ archived: archived === '1' });
+  });
+
+  app.get('/api/documents/:id', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return req.desk.documents.get(id);
+  });
+
+  app.patch('/api/documents/:id', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return req.desk.documents.update(id, DocumentPatch.parse(req.body));
+  });
+
+  // Raw-body uploads, in their own scope so every other route keeps JSON-only parsing.
+  app.register(async (files) => {
+    files.addContentTypeParser(
+      '*',
+      { parseAs: 'buffer', bodyLimit: MAX_DOCUMENT_BYTES },
+      (_req, body, done) => done(null, body),
+    );
+
+    files.post('/api/documents', async (req, reply) => {
+      const q = NewDocumentQuery.parse(req.query);
+      const doc = await req.desk.documents.create(
+        { name: q.name, kind: q.kind },
+        uploadBytes(req.body),
+        { filename: q.filename, contentType: req.headers['content-type'], note: q.note },
+      );
+      return reply.status(201).send(doc);
+    });
+
+    files.post('/api/documents/:id/versions', async (req, reply) => {
+      const { id } = IdParams.parse(req.params);
+      const q = UploadQuery.parse(req.query);
+      const doc = await req.desk.documents.addVersion(id, uploadBytes(req.body), {
+        filename: q.filename,
+        contentType: req.headers['content-type'],
+        note: q.note,
+      });
+      return reply.status(201).send(doc);
+    });
+  });
+
+  /** A version's bytes, private to the signed-in workspace. `?download=1` saves instead of opening. */
+  app.get('/api/documents/versions/:id/file', async (req, reply) => {
+    const { id } = IdParams.parse(req.params);
+    const { download } = z.object({ download: z.enum(['0', '1']).optional() }).parse(req.query);
+    const { version, bytes } = await req.desk.documents.read(id);
+    // Only types a browser shows safely open in a tab; anything else (HTML,
+    // SVG) downloads, and the sandbox keeps it from running as our origin.
+    const inline = download !== '1' && INLINE_TYPES.test(version.contentType);
+    return reply
+      .header('content-type', version.contentType)
+      .header('content-disposition', contentDisposition(version.filename, !inline))
+      .header('content-security-policy', 'sandbox')
+      .header('cache-control', 'private, max-age=31536000, immutable')
+      .header('x-content-type-options', 'nosniff')
+      .send(Buffer.from(bytes));
   });
 
   // ── contacts & outreach ───────────────────────────────────────────────────
@@ -255,6 +362,20 @@ async function exportName(
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
   return `offerdesk-${slug || 'view'}-${isoDate(Date.now())}`;
+}
+
+function uploadBytes(body: unknown): Uint8Array {
+  if (!Buffer.isBuffer(body))
+    throw new z.ZodError([
+      { code: 'custom', path: ['body'], message: 'send the file as the request body', input: body },
+    ]);
+  return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+}
+
+/** An ASCII fallback plus the exact UTF-8 name (RFC 6266). */
+function contentDisposition(filename: string, download: boolean): string {
+  const ascii = filename.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  return `${download ? 'attachment' : 'inline'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 function attachment(base: string, ext: string): string {

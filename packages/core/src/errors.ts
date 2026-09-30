@@ -12,3 +12,11 @@ export class ConflictError extends Error {
     this.name = 'ConflictError';
   }
 }
+
+/** A capability this deployment doesn't have configured, e.g. file storage. */
+export class UnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnavailableError';
+  }
+}

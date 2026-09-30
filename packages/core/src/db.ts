@@ -117,6 +117,40 @@ export const MIGRATIONS: readonly string[] = [
     UNIQUE (workspace_id, name)
   );
   `,
+  // v4 — documents library (ADR 0006). A document is mutable configuration
+  // (name, kind, archived); each upload is an immutable version whose bytes
+  // live in a FileStore under <workspace>/<sha256>. Attaching is an event.
+  `
+  CREATE TABLE documents (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    created_at   INTEGER NOT NULL,
+    archived_at  INTEGER
+  );
+  CREATE INDEX idx_documents_workspace ON documents(workspace_id, created_at);
+
+  CREATE TABLE document_versions (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    document_id  TEXT NOT NULL REFERENCES documents(id),
+    version      INTEGER NOT NULL,
+    filename     TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size         INTEGER NOT NULL,
+    sha256       TEXT NOT NULL,
+    note         TEXT,
+    created_at   INTEGER NOT NULL,
+    UNIQUE (document_id, version)
+  );
+  CREATE INDEX idx_document_versions_workspace ON document_versions(workspace_id, document_id);
+
+  CREATE TRIGGER document_versions_no_update BEFORE UPDATE ON document_versions
+    BEGIN SELECT RAISE(ABORT, 'document versions are immutable'); END;
+  CREATE TRIGGER document_versions_no_delete BEFORE DELETE ON document_versions
+    BEGIN SELECT RAISE(ABORT, 'document versions are immutable'); END;
+  `,
 ];
 
 /** A value SQLite can bind. */

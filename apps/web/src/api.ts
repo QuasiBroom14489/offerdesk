@@ -5,6 +5,9 @@ import type {
   Contact,
   ContactDetail,
   Dashboard,
+  Document,
+  DocumentKind,
+  DocumentPatch,
   Flag,
   NewApplication,
   NewContact,
@@ -179,4 +182,81 @@ export function exportUrl(format: 'csv' | 'xlsx', viewId: string, spec: ViewSpec
   const q = new URLSearchParams({ view: viewId });
   if (spec) q.set('spec', JSON.stringify(spec));
   return `/api/export.${format}?${q}`;
+}
+
+// ── documents library ──────────────────────────────────────────────────────
+
+/** `files` is the document store's name, or null when uploads aren't set up here. */
+export const useHealth = () =>
+  useQuery({
+    queryKey: ['health'],
+    queryFn: () => request<{ ok: boolean; files: string | null }>('GET', '/api/health'),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+export const useDocuments = (archived = false) =>
+  useQuery({
+    queryKey: ['documents', { archived }],
+    queryFn: () => request<Document[]>('GET', `/api/documents${archived ? '?archived=1' : ''}`),
+  });
+
+/** The file is the body; what describes it goes in the query string (ADR 0006). */
+async function upload(url: string, file: File, params: Record<string, string | undefined>) {
+  const q = new URLSearchParams({ filename: file.name });
+  for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
+  const res = await fetch(`${url}?${q}`, {
+    method: 'POST',
+    headers: { 'content-type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const issue = data?.issues?.[0];
+    throw new ApiError(
+      res.status,
+      issue?.message ?? data?.error ?? `Upload failed (${res.status})`,
+    );
+  }
+  return data as Document;
+}
+
+export const useUploadDocument = () =>
+  useMutation({
+    mutationFn: ({ file, name, kind }: { file: File; name: string; kind: DocumentKind }) =>
+      upload('/api/documents', file, { name, kind }),
+    onSuccess: invalidateAll,
+  });
+
+export const useAddVersion = () =>
+  useMutation({
+    mutationFn: ({ id, file, note }: { id: string; file: File; note?: string }) =>
+      upload(`/api/documents/${id}/versions`, file, { note }),
+    onSuccess: invalidateAll,
+  });
+
+export const useUpdateDocument = () =>
+  useMutation({
+    mutationFn: ({ id, ...patch }: DocumentPatch & { id: string }) =>
+      request<Document>('PATCH', `/api/documents/${id}`, patch),
+    onSuccess: invalidateAll,
+  });
+
+export const useAttachDocument = () =>
+  useMutation({
+    mutationFn: ({ id, documentId }: { id: string; documentId: string }) =>
+      request<Application>('POST', `/api/applications/${id}/documents`, { documentId }),
+    onSuccess: invalidateAll,
+  });
+
+export const useDetachDocument = () =>
+  useMutation({
+    mutationFn: ({ id, documentId }: { id: string; documentId: string }) =>
+      request<Application>('DELETE', `/api/applications/${id}/documents/${documentId}`),
+    onSuccess: invalidateAll,
+  });
+
+/** Opens in a tab (PDFs, images); `download` saves instead. */
+export function fileUrl(versionId: string, download = false): string {
+  return `/api/documents/versions/${versionId}/file${download ? '?download=1' : ''}`;
 }

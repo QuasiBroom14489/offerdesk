@@ -37,6 +37,7 @@ export function CommandPalette({
       { id: 'board', label: 'Go to Board', hint: 'G B', run: go('/board') },
       { id: 'table', label: 'Go to All applications', hint: 'G A', run: go('/applications') },
       { id: 'people', label: 'Go to People', hint: 'G P', run: go('/people') },
+      { id: 'documents', label: 'Go to Documents', hint: 'G D', run: go('/documents') },
       ...(apps.data ?? []).map((a) => ({
         id: `app-${a.id}`,
         label: `${a.companyName} — ${a.role}`,

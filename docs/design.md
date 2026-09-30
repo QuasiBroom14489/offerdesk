@@ -40,7 +40,7 @@ else is 14–16px. Section titles are small and grey so the content leads.
 | --- | --- |
 | `⌘K` or `/` | Command palette: jump to any page, application or person |
 | `N` | Add an application |
-| `G` then `H` / `B` / `A` / `P` | Home, Board, Applications, People |
+| `G` then `H` / `B` / `A` / `P` / `D` | Home, Board, Applications, People, Documents |
 | `J` / `K` | Move through cards or table rows |
 | `[` / `]` (or `H` / `L`) on a focused card | Move it to the previous or next stage |
 | `Enter` | Open the selected row |

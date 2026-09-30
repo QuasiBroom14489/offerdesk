@@ -151,6 +151,19 @@ export const MIGRATIONS: readonly string[] = [
   CREATE TRIGGER document_versions_no_delete BEFORE DELETE ON document_versions
     BEGIN SELECT RAISE(ABORT, 'document versions are immutable'); END;
   `,
+  // v5 — hosted credential store (ADR 0007). Connector tokens, AES-256-GCM
+  // encrypted with a key that lives only in the environment. Never plaintext.
+  `
+  CREATE TABLE credentials (
+    workspace_id TEXT NOT NULL,
+    provider     TEXT NOT NULL,
+    ciphertext   TEXT NOT NULL,
+    iv           TEXT NOT NULL,
+    tag          TEXT NOT NULL,
+    updated_at   INTEGER NOT NULL,
+    PRIMARY KEY (workspace_id, provider)
+  );
+  `,
 ];
 
 /** A value SQLite can bind. */

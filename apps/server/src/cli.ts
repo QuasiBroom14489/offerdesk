@@ -12,6 +12,10 @@ const USAGE = `offerdesk <command>
 `;
 
 async function main(argv: string[]): Promise<void> {
+  // Local secrets (Google OAuth client, credentials key) live in a gitignored
+  // .env at the repo root; on Vercel they come from the project's environment.
+  const envFile = resolve(REPO_ROOT, '.env');
+  if (existsSync(envFile)) process.loadEnvFile(envFile);
   const [command] = argv;
   switch (command) {
     case 'serve': {

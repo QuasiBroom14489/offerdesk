@@ -42,7 +42,7 @@ records how it was done.
   needs a custom domain. Moving to one is a key swap, not a code change.
 - Still local-only: the Obsidian mirror (a vault is a local folder) and the
   Keychain credential store. A hosted credential store arrives with the Google
-  connector.
+  connector (ADR 0007).
 - Vesper reaches the hosted database directly with its own token and the
   owner's workspace id. A public service would instead expose a remote MCP
   endpoint behind OAuth.

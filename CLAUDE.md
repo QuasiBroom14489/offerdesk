@@ -11,7 +11,8 @@
   0002). Add new migrations to the end of `MIGRATIONS` in `db.ts`; never edit a
   shipped one.
 - **Vendor SDKs only inside `packages/core/src/connectors/<provider>`.** Secrets
-  go through a `CredentialStore`, never the database, config or logs.
+  go through a `CredentialStore`, never config or logs, and never the database
+  in plaintext (hosted: AES-GCM ciphertext only, key in env — ADR 0007).
 - **Connectors suggest, users confirm.** Anything inferred (e.g. a Gmail reply)
   becomes a suggestion, not an event, until the user accepts it.
 - **No personal data in the repo.** `data/`, `config.toml`, `.env*` and PDFs are

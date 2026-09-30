@@ -28,7 +28,9 @@ Build for one user, but put the seams where a service would need them.
 - **Connections are configuration, not history.** The `connections` table holds
   one row per provider per workspace: status, non-secret config, last sync, last
   error. It is mutable, like entity tables.
-- **Secrets never touch the database or git.** A `CredentialStore` holds tokens:
+- **Secrets never touch the database or git.** *(Amended by ADR 0007: hosted
+  deployments keep AES-256-GCM ciphertext in the database; the key stays in
+  the environment.)* A `CredentialStore` holds tokens:
   the macOS Keychain locally (commands piped to `security -i`, so secrets never
   appear in the process list), a `0600` JSON file elsewhere, an in-memory store
   in tests.
@@ -42,7 +44,7 @@ These are deliberately *not* built yet:
 
 1. A Postgres adapter behind the same queries (SQLite stays the local default).
 2. Authentication mapping a signed-in user to a `workspace_id`.
-3. An encrypted, server-side `CredentialStore`.
+3. An encrypted, server-side `CredentialStore`. *(Built in ADR 0007.)*
 4. A job queue for connector syncs instead of on-demand runs.
 5. Google OAuth app verification. `drive.file` is non-sensitive, but
    `drive.readonly` is sensitive and `gmail.readonly` is restricted, which

@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { Db } from '../db.js';
+import { EncryptedDbCredentialStore, parseCredentialsKey } from './encrypted-credentials.js';
 import type { CredentialStore, Provider, Secret } from './types.js';
 
 const SERVICE_PREFIX = 'offerdesk';
@@ -96,4 +98,22 @@ export function defaultCredentialStore(dataDir: string): CredentialStore {
   return process.platform === 'darwin'
     ? new KeychainCredentialStore()
     : new FileCredentialStore(`${dataDir}/credentials.json`);
+}
+
+/**
+ * Where this process keeps connector secrets (ADR 0007). Beside a hosted
+ * database, on Vercel or on a laptop pointed at Turso (the MCP server), secrets
+ * go in the shared database, encrypted with `OFFERDESK_CREDENTIALS_KEY`; with no
+ * key there is no store, and connectors report themselves unavailable. Beside a
+ * local database, the Keychain or a 0600 file.
+ */
+export function credentialStoreFromEnv(
+  db: Db,
+  cfg: { dataDir: string; dbUrl: string },
+  env: NodeJS.ProcessEnv = process.env,
+): CredentialStore | null {
+  const hostedDb = /^(libsql|https?|wss?):/.test(cfg.dbUrl);
+  if (!env.VERCEL && !hostedDb) return defaultCredentialStore(cfg.dataDir);
+  if (!env.OFFERDESK_CREDENTIALS_KEY) return null;
+  return new EncryptedDbCredentialStore(db, parseCredentialsKey(env.OFFERDESK_CREDENTIALS_KEY));
 }

@@ -20,6 +20,7 @@ import type {
 } from '@offerdesk/shared';
 import { keepPreviousData, QueryClient, useMutation, useQuery } from '@tanstack/react-query';
 import { UNAUTHORIZED_EVENT } from './components/Auth';
+import { type PickerConfig, pickDriveFiles } from './picker';
 
 export class ApiError extends Error {
   constructor(
@@ -320,4 +321,37 @@ export const usePushViewSheet = () =>
       queryClient.invalidateQueries({ queryKey: ['connections'] });
     },
     onError: () => queryClient.invalidateQueries({ queryKey: ['connections'] }),
+  });
+
+// ── Drive in and out (ADR 0007) ──────────────────────────────────────────────
+export interface DriveImport {
+  fileId: string;
+  outcome: 'created' | 'new-version' | 'unchanged';
+  document: Document;
+}
+
+/** Opens the Picker, then imports what was chosen. Resolves to null if cancelled. */
+export const useImportFromDrive = () =>
+  useMutation({
+    mutationFn: async (opts: { applicationId?: string } = {}) => {
+      const cfg = await request<PickerConfig>('GET', '/api/connections/google/picker');
+      const fileIds = await pickDriveFiles(cfg);
+      if (!fileIds?.length) return null;
+      const { results } = await request<{ results: DriveImport[] }>(
+        'POST',
+        '/api/documents/import-drive',
+        { fileIds, applicationId: opts.applicationId },
+      );
+      return results;
+    },
+    onSuccess: invalidateAll,
+  });
+
+export const useSaveToDrive = () =>
+  useMutation({
+    mutationFn: (versionId: string) =>
+      request<{ url: string; created: boolean }>(
+        'POST',
+        `/api/documents/versions/${versionId}/drive`,
+      ),
   });

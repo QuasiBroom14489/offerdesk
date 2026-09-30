@@ -8,6 +8,8 @@ import {
   type Contact,
   type ContactDetail,
   type Dashboard,
+  type Document,
+  type DocumentKind,
   type EventPayload,
   type EventSource,
   type Flag,
@@ -37,7 +39,7 @@ import { Documents, foldAttachments } from './documents.js';
 import { NotFoundError } from './errors.js';
 import { EventLog } from './events.js';
 import { fileStoreFromEnv } from './files/index.js';
-import type { FileStore } from './files/store.js';
+import { type FileStore, sha256 } from './files/store.js';
 import { type RowFacts, rowFacts } from './reports/columns.js';
 import { toCsv, toXlsx } from './reports/export.js';
 import { DEFAULT_VIEW_ID } from './reports/presets.js';
@@ -85,6 +87,23 @@ export interface OfferdeskOptions {
   google?: GoogleConfig | null;
   /** HTTP for connectors; tests pass a fake. */
   fetch?: Fetch;
+}
+
+/** What happened to one picked Drive file. */
+export interface DriveImport {
+  fileId: string;
+  outcome: 'created' | 'new-version' | 'unchanged';
+  document: Document;
+}
+
+/** "Jane Doe Resume 2026.pdf" → resume. The user can change it afterwards. */
+function guessKind(filename: string): DocumentKind {
+  if (/r[ée]sum[ée]|\bcv\b/i.test(filename)) return 'resume';
+  if (/cover/i.test(filename)) return 'cover-letter';
+  if (/transcript/i.test(filename)) return 'transcript';
+  if (/portfolio/i.test(filename)) return 'portfolio';
+  if (/writing|essay|sample/i.test(filename)) return 'writing-sample';
+  return 'other';
 }
 
 /** A saved view by id, an ad-hoc spec, or both (the spec wins; the view names the export). */
@@ -670,6 +689,74 @@ export class Offerdesk {
     await this.viewSheets.save(viewId, target, this.now(), seq);
     const saved = (await this.viewSheets.get(viewId)) as ViewSheet;
     return { ...saved, rows: report.rows.length, created: existing === null };
+  }
+
+  /**
+   * Bring picked Drive files into the documents library (ADR 0007). A file
+   * seen before adds a version to its document only if its bytes changed; a
+   * new one becomes a document, its kind guessed from the name unless given.
+   * With an application, each document is attached to it (latest version).
+   */
+  async importFromDrive(input: {
+    fileIds: string[];
+    kind?: DocumentKind;
+    applicationId?: string;
+  }): Promise<DriveImport[]> {
+    if (input.applicationId) await this.requireApplication(input.applicationId);
+    const drive = this.google.drive();
+    const results: DriveImport[] = [];
+    for (const fileId of new Set(input.fileIds)) {
+      const file = await drive.download(fileId);
+      const meta = {
+        filename: file.filename,
+        contentType: file.contentType,
+        source: 'drive' as const,
+        sourceRef: fileId,
+      };
+      const known = await this.documents.findBySource('drive', fileId);
+      let document: Document;
+      let outcome: DriveImport['outcome'];
+      if (!known) {
+        const name = file.filename.replace(/\.[^.]+$/, '').trim() || file.filename;
+        document = await this.documents.create(
+          { name, kind: input.kind ?? guessKind(file.filename) },
+          file.bytes,
+          meta,
+        );
+        outcome = 'created';
+      } else if (known.versions[0]?.sha256 === sha256(file.bytes)) {
+        document = known;
+        outcome = 'unchanged';
+      } else {
+        document = await this.documents.addVersion(known.id, file.bytes, meta);
+        outcome = 'new-version';
+      }
+      if (input.applicationId) {
+        await this.attachDocument(input.applicationId, document.id, { source: 'drive' });
+      }
+      results.push({ fileId, outcome, document });
+    }
+    return results;
+  }
+
+  /**
+   * Copy a version into the `OfferDesk` Drive folder. Saving the same version
+   * again returns the existing copy rather than a duplicate.
+   */
+  async saveVersionToDrive(versionId: string): Promise<{ url: string; created: boolean }> {
+    const { version, bytes } = await this.documents.read(versionId);
+    const doc = await this.documents.get(version.documentId);
+    const drive = this.google.drive();
+    const existing = await drive.findCopy(versionId);
+    if (existing) return { url: existing.url, created: false };
+    const ext = version.filename.match(/\.[^.]+$/)?.[0] ?? '';
+    const copy = await drive.upload({
+      versionId,
+      name: `${doc.name} (v${version.version})${ext}`,
+      contentType: version.contentType,
+      bytes,
+    });
+    return { url: copy.url, created: true };
   }
 
   /** Stop pushing a view. The spreadsheet stays in Drive. */

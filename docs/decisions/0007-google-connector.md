@@ -54,9 +54,20 @@ hosted database. Both need the same Google tokens.
   presets, which have no `views` row, can be pushed. The `views.sheet_id`
   column reserved in migration 3 stays unused. Deleting a saved view drops the
   link; the spreadsheet stays in Drive.
-- **Drive files are snapshotted.** A picked file becomes a new document version
-  (source `drive`, with its Drive file id), keeping ADR 0006's immutable
-  versions; "Save to Drive" copies a version out.
+- **Drive files are snapshotted.** A picked file is downloaded server side
+  (Google Docs, Sheets and Slides export as PDF) and becomes a document
+  version, keeping ADR 0006's immutable versions. Migration 7 adds `source`
+  (`upload` or `drive`) and `source_ref` (the Drive file id) to versions, so
+  importing the same file again adds a version only if its bytes changed, and
+  says "unchanged" otherwise. The kind is guessed from the name ("…Resume…"
+  becomes a resume) and can be changed. The 4 MB library limit still applies.
+- **Save to Drive is idempotent.** A version is uploaded into `OfferDesk/`
+  tagged with a Drive `appProperties` entry, `offerdeskVersion = <version id>`.
+  Saving again finds that copy instead of making a duplicate, with no table to
+  keep in sync.
+- **The Picker runs in the browser** with a short-lived access token from
+  `/api/connections/google/picker`, the referrer-restricted API key, and the
+  project number as app id, which is what grants the picked files to this app.
 - Every Google action is started by the user, so the suggestion inbox isn't
   involved.
 

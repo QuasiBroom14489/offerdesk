@@ -156,3 +156,25 @@ describe('view sheets API', () => {
     bare.close();
   });
 });
+
+describe('Drive API', () => {
+  it('validates imports and needs Picker keys for the picker', async () => {
+    const desk = await Offerdesk.open(':memory:', {
+      credentials: new MemoryCredentialStore(),
+      google: { clientId: 'cid', clientSecret: 'secret' },
+      fetch: fakeGoogle,
+    });
+    const app = buildServer(desk);
+    const empty = await app.inject({
+      method: 'POST',
+      url: '/api/documents/import-drive',
+      payload: { fileIds: [] },
+    });
+    expect(empty.statusCode).toBe(400);
+    const picker = await app.inject({ method: 'GET', url: '/api/connections/google/picker' });
+    expect(picker.statusCode).toBe(503);
+    expect(picker.json().error).toMatch(/GOOGLE_API_KEY/);
+    await app.close();
+    desk.close();
+  });
+});

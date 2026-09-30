@@ -15,6 +15,12 @@ export { Documents, foldAttachments } from './documents.js';
 export { ConflictError, NotFoundError, UnavailableError } from './errors.js';
 export { EventLog } from './events.js';
 export * from './files/index.js';
-export { normalizeUrl, Offerdesk, type OfferdeskOptions, type ReportInput } from './offerdesk.js';
+export {
+  type DriveImport,
+  normalizeUrl,
+  Offerdesk,
+  type OfferdeskOptions,
+  type ReportInput,
+} from './offerdesk.js';
 export * from './reports/index.js';
 export { type ViewSheet, ViewSheets } from './reports/view-sheets.js';

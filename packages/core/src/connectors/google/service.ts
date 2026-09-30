@@ -2,6 +2,7 @@ import { UnavailableError } from '../../errors.js';
 import type { Connections } from '../connections.js';
 import type { ConnectionStatus, CredentialStore } from '../types.js';
 import { GoogleClient } from './client.js';
+import { GoogleDrive } from './drive.js';
 import {
   authorizationUrl,
   exchangeCode,
@@ -114,6 +115,24 @@ export class GoogleService {
     if (secret) await revokeTokens(this.fetchFn, secret as unknown as GoogleTokens);
     await store.delete(this.workspaceId, 'google');
     await this.connections.remove('google');
+  }
+
+  /** Files in the workspace's Drive (ADR 0007). */
+  drive(): GoogleDrive {
+    return new GoogleDrive(this.client());
+  }
+
+  /**
+   * What the browser needs to open the Google Picker: a short-lived access
+   * token, the Picker API key, and the project number (so picked files are
+   * granted to this app under `drive.file`).
+   */
+  async pickerConfig(): Promise<{ accessToken: string; apiKey: string; appId: string }> {
+    const { cfg } = this.require();
+    if (!cfg.apiKey || !cfg.appId) {
+      throw new UnavailableError('the Google Picker needs GOOGLE_API_KEY and GOOGLE_APP_ID');
+    }
+    return { accessToken: await this.client().accessToken(), apiKey: cfg.apiKey, appId: cfg.appId };
   }
 
   /** Spreadsheets in the workspace's Drive (ADR 0007). */

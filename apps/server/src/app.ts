@@ -67,6 +67,12 @@ const NewDocumentQuery = UploadQuery.extend({
   kind: DocumentKind.optional(),
 });
 
+const DriveImportBody = z.object({
+  fileIds: z.array(z.string().min(1)).min(1).max(10),
+  kind: DocumentKind.optional(),
+  applicationId: z.string().min(1).optional(),
+});
+
 const INLINE_TYPES = /^(application\/pdf|image\/(png|jpeg|gif|webp)|text\/plain)(;|$)/i;
 
 const ResponseBody = OutreachBody.extend({
@@ -267,6 +273,18 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
   });
 
   /** A version's bytes, private to the signed-in workspace. `?download=1` saves instead of opening. */
+  // Drive in and out (ADR 0007). Files picked in the Google Picker are imported
+  // server side, so their bytes never pass through the 4.5 MB request limit.
+  app.post('/api/documents/import-drive', async (req) => {
+    const body = DriveImportBody.parse(req.body);
+    return { results: await req.desk.importFromDrive(body) };
+  });
+
+  app.post('/api/documents/versions/:id/drive', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return req.desk.saveVersionToDrive(id);
+  });
+
   app.get('/api/documents/versions/:id/file', async (req, reply) => {
     const { id } = IdParams.parse(req.params);
     const { download } = z.object({ download: z.enum(['0', '1']).optional() }).parse(req.query);
@@ -348,6 +366,9 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
       return back('error', 'something went wrong finishing the Google sign-in');
     }
   });
+
+  /** A short-lived token and keys for the Google Picker, which runs in the browser. */
+  app.get('/api/connections/google/picker', async (req) => req.desk.google.pickerConfig());
 
   app.post('/api/connections/google/check', async (req) => req.desk.google.check());
 

@@ -25,6 +25,9 @@ export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
 export const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
 
 /** One uploaded revision of a document. Immutable once written. */
+export const VersionSource = z.enum(['upload', 'drive']);
+export type VersionSource = z.infer<typeof VersionSource>;
+
 export const DocumentVersion = z.object({
   id: z.string(),
   documentId: z.string(),
@@ -34,6 +37,10 @@ export const DocumentVersion = z.object({
   size: z.number().int().nonnegative(),
   sha256: z.string(),
   note: z.string().nullable(),
+  /** Where the bytes came from: an upload, or a Drive import (ADR 0007). */
+  source: VersionSource,
+  /** The Drive file id for a Drive import. */
+  sourceRef: z.string().nullable(),
   createdAt: z.number(),
 });
 export type DocumentVersion = z.infer<typeof DocumentVersion>;
@@ -76,5 +83,7 @@ export const UploadMeta = z.object({
   filename: z.string().trim().min(1).max(255),
   contentType: z.string().trim().min(1).default('application/octet-stream'),
   note: z.string().trim().min(1).max(500).nullish(),
+  source: VersionSource.default('upload'),
+  sourceRef: z.string().min(1).nullish(),
 });
 export type UploadMeta = z.input<typeof UploadMeta>;

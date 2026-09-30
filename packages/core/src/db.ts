@@ -179,6 +179,15 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (workspace_id, view_id)
   );
   `,
+  // v7 — where a document version came from (ADR 0007). Additive columns;
+  // versions stay immutable. A Drive import keeps the Drive file id, so
+  // importing the same file again adds a version only when it changed.
+  `
+  ALTER TABLE document_versions ADD COLUMN source TEXT NOT NULL DEFAULT 'upload';
+  ALTER TABLE document_versions ADD COLUMN source_ref TEXT;
+  CREATE INDEX idx_document_versions_source
+    ON document_versions(workspace_id, source, source_ref);
+  `,
 ];
 
 /** A value SQLite can bind. */

@@ -7,10 +7,14 @@ import {
 } from '@offerdesk/shared';
 import { type FormEvent, useRef, useState } from 'react';
 import {
+  type DriveImport,
   fileUrl,
   useAddVersion,
+  useConnections,
   useDocuments,
   useHealth,
+  useImportFromDrive,
+  useSaveToDrive,
   useUpdateDocument,
   useUploadDocument,
 } from '../api';
@@ -38,6 +42,9 @@ export function Documents() {
   const health = useHealth();
   const [adding, setAdding] = useState(false);
   const canUpload = health.data?.files !== null;
+  const connections = useConnections();
+  const driveReady = canUpload && connections.data?.google.status === 'connected';
+  const fromDrive = useImportFromDrive();
 
   if (isPending) return <p className="text-faint">Loading…</p>;
   if (error) return <ServerDown message={error.message} />;
@@ -46,12 +53,27 @@ export function Documents() {
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-medium">Documents</h1>
-        {canUpload && !adding && (
-          <button type="button" onClick={() => setAdding(true)} className={buttonClass}>
-            Upload
-          </button>
-        )}
+        <div className="flex gap-2">
+          {driveReady && (
+            <button
+              type="button"
+              onClick={() => fromDrive.mutate({})}
+              disabled={fromDrive.isPending}
+              className={quietButtonClass}
+            >
+              {fromDrive.isPending ? 'Importing…' : 'Import from Drive'}
+            </button>
+          )}
+          {canUpload && !adding && (
+            <button type="button" onClick={() => setAdding(true)} className={buttonClass}>
+              Upload
+            </button>
+          )}
+        </div>
       </header>
+
+      {fromDrive.error && <p className="text-sm text-red">{fromDrive.error.message}</p>}
+      {fromDrive.data && <p className="text-sm text-muted">{importSummary(fromDrive.data)}</p>}
 
       {!canUpload && (
         <p className="text-sm text-muted">
@@ -71,7 +93,7 @@ export function Documents() {
       ) : (
         <ul className="divide-y divide-line">
           {data.map((d) => (
-            <DocumentRow key={d.id} doc={d} canUpload={canUpload} />
+            <DocumentRow key={d.id} doc={d} canUpload={canUpload} driveReady={driveReady} />
           ))}
         </ul>
       )}
@@ -87,6 +109,19 @@ export function Documents() {
       </div>
     </div>
   );
+}
+
+/** "Imported 2 files, updated 1, 1 unchanged." */
+function importSummary(results: DriveImport[]): string {
+  const count = (o: DriveImport['outcome']) => results.filter((r) => r.outcome === o).length;
+  const files = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
+  const parts = [
+    count('created') && `imported ${files(count('created'))}`,
+    count('new-version') && `added a new version to ${files(count('new-version'))}`,
+    count('unchanged') && `${count('unchanged')} unchanged since the last import`,
+  ].filter(Boolean);
+  const text = parts.join(', ');
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
 }
 
 function UploadForm({ onDone }: { onDone: () => void }) {
@@ -161,7 +196,15 @@ function UploadForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-function DocumentRow({ doc, canUpload }: { doc: Document; canUpload: boolean }) {
+function DocumentRow({
+  doc,
+  canUpload,
+  driveReady,
+}: {
+  doc: Document;
+  canUpload: boolean;
+  driveReady: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const addVersion = useAddVersion();
@@ -244,6 +287,7 @@ function DocumentRow({ doc, canUpload }: { doc: Document; canUpload: boolean }) 
                 <span className="font-medium">v{v.version}</span>{' '}
                 <span className="text-muted">
                   {v.filename} · {fileSize(v.size)} · {relativeDays(v.createdAt)}
+                  {v.source === 'drive' && ' · from Drive'}
                 </span>
                 {v.note && <span className="block text-muted">{v.note}</span>}
               </span>
@@ -259,11 +303,35 @@ function DocumentRow({ doc, canUpload }: { doc: Document; canUpload: boolean }) 
                 <a href={fileUrl(v.id, true)} className="text-muted hover:text-fg">
                   Download
                 </a>
+                {driveReady && <SaveToDrive versionId={v.id} />}
               </span>
             </li>
           ))}
         </ol>
       )}
     </li>
+  );
+}
+
+/** Copy a version into the OfferDesk Drive folder; afterwards, a link to the copy. */
+function SaveToDrive({ versionId }: { versionId: string }) {
+  const save = useSaveToDrive();
+  if (save.data) {
+    return (
+      <a href={save.data.url} target="_blank" rel="noreferrer" className="text-muted hover:text-fg">
+        In Drive ↗
+      </a>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => save.mutate(versionId)}
+      disabled={save.isPending}
+      title={save.error?.message}
+      className={`hover:text-fg disabled:opacity-50 ${save.error ? 'text-red' : 'text-muted'}`}
+    >
+      {save.isPending ? 'Saving…' : save.error ? 'Retry save to Drive' : 'Save to Drive'}
+    </button>
   );
 }

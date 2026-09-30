@@ -1,5 +1,12 @@
 export { GoogleApiError, GoogleClient } from './client.js';
 export {
+  type DriveCopy,
+  type DriveDownload,
+  FOLDER_NAME,
+  GoogleDrive,
+  offerdeskFolder,
+} from './drive.js';
+export {
   type Fetch,
   GOOGLE_SCOPES,
   GoogleAuthError,
@@ -9,4 +16,4 @@ export {
   OAuthStateError,
 } from './oauth.js';
 export { GoogleService, type GoogleStatus } from './service.js';
-export { FOLDER_NAME, GoogleSheets, type PushedSheet, sheetRequests, TAB_NAME } from './sheets.js';
+export { GoogleSheets, type PushedSheet, sheetRequests, TAB_NAME } from './sheets.js';

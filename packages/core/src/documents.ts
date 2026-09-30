@@ -33,6 +33,8 @@ interface VersionRow {
   size: number;
   sha256: string;
   note: string | null;
+  source: string;
+  source_ref: string | null;
   created_at: number;
 }
 
@@ -51,6 +53,8 @@ function toVersion(r: VersionRow): DocumentVersion {
     size: r.size,
     sha256: r.sha256,
     note: r.note,
+    source: r.source as DocumentVersion['source'],
+    sourceRef: r.source_ref,
     createdAt: r.created_at,
   };
 }
@@ -223,8 +227,9 @@ export class Documents {
     await this.store().put(fileKey(this.workspaceId, hash), body, meta.contentType);
     await this.db.run(
       `INSERT INTO document_versions
-         (id, workspace_id, document_id, version, filename, content_type, size, sha256, note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, workspace_id, document_id, version, filename, content_type, size, sha256, note,
+          source, source_ref, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       randomUUID(),
       this.workspaceId,
       documentId,
@@ -234,8 +239,23 @@ export class Documents {
       body.byteLength,
       hash,
       meta.note ?? null,
+      meta.source,
+      meta.sourceRef ?? null,
       this.now(),
     );
+  }
+
+  /** The document holding a version imported from this source file, if any. */
+  async findBySource(source: 'drive', ref: string): Promise<Document | null> {
+    const row = await this.db.get<{ document_id: string }>(
+      `SELECT document_id FROM document_versions
+       WHERE workspace_id = ? AND source = ? AND source_ref = ?
+       ORDER BY created_at DESC LIMIT 1`,
+      this.workspaceId,
+      source,
+      ref,
+    );
+    return row ? this.get(row.document_id) : null;
   }
 
   /** Every document with its versions, in two queries. */

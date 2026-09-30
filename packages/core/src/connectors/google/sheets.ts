@@ -1,6 +1,7 @@
 import { type Cell, type ColumnMeta, cellText, type Report } from '@offerdesk/shared';
 import { headerText, SIGNAL_FILL, signalOf } from '../../reports/export.js';
 import { GoogleApiError, type GoogleClient } from './client.js';
+import { DRIVE_FILES, offerdeskFolder } from './drive.js';
 
 /**
  * Views as Google Sheets (ADR 0007). A pushed view is one spreadsheet in an
@@ -9,11 +10,8 @@ import { GoogleApiError, type GoogleClient } from './client.js';
  * and are never touched.
  */
 
-const DRIVE = 'https://www.googleapis.com/drive/v3/files';
 const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
-const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
-export const FOLDER_NAME = 'OfferDesk';
 export const TAB_NAME = 'OfferDesk';
 
 export interface PushedSheet {
@@ -150,26 +148,10 @@ interface SpreadsheetMeta {
 export class GoogleSheets {
   constructor(private readonly client: GoogleClient) {}
 
-  /** The app's `OfferDesk` folder. `drive.file` only lists folders this app made. */
-  async folder(): Promise<string> {
-    const q = `name = '${FOLDER_NAME}' and mimeType = '${FOLDER_MIME}' and trashed = false`;
-    const found = await this.client.json<{ files: { id: string }[] }>(
-      `${DRIVE}?${new URLSearchParams({ q, fields: 'files(id)', spaces: 'drive' })}`,
-    );
-    const existing = found.files[0];
-    if (existing) return existing.id;
-    const made = await this.client.json<{ id: string }>(`${DRIVE}?fields=id`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: FOLDER_NAME, mimeType: FOLDER_MIME }),
-    });
-    return made.id;
-  }
-
   /** A new spreadsheet in the folder. */
   async create(title: string): Promise<PushedSheet> {
-    const folder = await this.folder();
-    const file = await this.client.json<{ id: string }>(`${DRIVE}?fields=id`, {
+    const folder = await offerdeskFolder(this.client);
+    const file = await this.client.json<{ id: string }>(`${DRIVE_FILES}?fields=id`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: title, mimeType: SHEET_MIME, parents: [folder] }),
@@ -182,7 +164,7 @@ export class GoogleSheets {
   async find(spreadsheetId: string): Promise<PushedSheet | null> {
     try {
       const file = await this.client.json<{ trashed?: boolean }>(
-        `${DRIVE}/${encodeURIComponent(spreadsheetId)}?fields=trashed`,
+        `${DRIVE_FILES}/${encodeURIComponent(spreadsheetId)}?fields=trashed`,
       );
       if (file.trashed) return null;
     } catch (err) {

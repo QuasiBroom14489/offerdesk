@@ -2,6 +2,7 @@ import type {
   AnyEvent,
   Application,
   ApplicationDetail,
+  CapturePosting,
   Contact,
   ContactDetail,
   Dashboard,
@@ -12,6 +13,8 @@ import type {
   NewApplication,
   NewContact,
   NewView,
+  PostingDraft,
+  PostingImage,
   Report,
   SavedView,
   Status,
@@ -81,6 +84,24 @@ export const useContact = (id: string) =>
 export const useAddApplication = () =>
   useMutation({
     mutationFn: (body: NewApplication) => request<Application>('POST', '/api/applications', body),
+    onSuccess: invalidateAll,
+  });
+
+/** Read a posting off screenshots. Suggests fields; saves nothing (ADR 0008). */
+export const useReadScreenshots = () =>
+  useMutation({
+    mutationFn: (images: PostingImage[]) =>
+      request<{ draft: PostingDraft; duplicateOf: Application | null }>(
+        'POST',
+        '/api/capture/screenshots',
+        { images },
+      ),
+  });
+
+export const useCapturePosting = () =>
+  useMutation({
+    mutationFn: (body: CapturePosting) =>
+      request<{ application: Application; duplicate: boolean }>('POST', '/api/capture', body),
     onSuccess: invalidateAll,
   });
 
@@ -187,11 +208,15 @@ export function exportUrl(format: 'csv' | 'xlsx', viewId: string, spec: ViewSpec
 
 // ── documents library ──────────────────────────────────────────────────────
 
-/** `files` is the document store's name, or null when uploads aren't set up here. */
+/**
+ * `files` is the document store's name, or null when uploads aren't set up
+ * here; `screenshots` is whether the server can read posting screenshots.
+ */
 export const useHealth = () =>
   useQuery({
     queryKey: ['health'],
-    queryFn: () => request<{ ok: boolean; files: string | null }>('GET', '/api/health'),
+    queryFn: () =>
+      request<{ ok: boolean; files: string | null; screenshots: boolean }>('GET', '/api/health'),
     staleTime: Number.POSITIVE_INFINITY,
   });
 

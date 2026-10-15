@@ -21,6 +21,7 @@ import {
   NewApplication,
   NewContact,
   NewView,
+  ReadScreenshots,
   Status,
   ViewPatch,
   ViewSpec,
@@ -158,8 +159,15 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
     req.desk = workspace === base.workspaceId ? base : base.forWorkspace(workspace);
   });
 
-  /** `files` names the document store, or null when uploads aren't available here. */
-  app.get('/api/health', async () => ({ ok: true, files: base.documents.storage }));
+  /**
+   * `files` names the document store, or null when uploads aren't available
+   * here; `screenshots` says whether a posting can be read from screenshots.
+   */
+  app.get('/api/health', async () => ({
+    ok: true,
+    files: base.documents.storage,
+    screenshots: base.canReadScreenshots,
+  }));
 
   app.get('/api/dashboard', async (req) => req.desk.dashboard());
 
@@ -198,6 +206,11 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
     const result = await req.desk.capturePosting(CapturePosting.parse(req.body));
     return reply.status(result.duplicate ? 200 : 201).send(result);
   });
+
+  /** Suggest a capture from screenshots of a posting (ADR 0008). Saves nothing. */
+  app.post('/api/capture/screenshots', { bodyLimit: 4_500_000 }, async (req) =>
+    req.desk.readPostingScreenshots(ReadScreenshots.parse(req.body)),
+  );
 
   app.post('/api/applications/:id/notes', async (req, reply) => {
     const { id } = IdParams.parse(req.params);

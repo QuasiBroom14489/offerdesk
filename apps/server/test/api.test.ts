@@ -349,8 +349,61 @@ describe('REST API', () => {
       expect((await bare.inject({ method: 'GET', url: '/api/health' })).json()).toEqual({
         ok: true,
         files: null,
+        screenshots: false,
       });
       await bare.close();
+    });
+  });
+
+  describe('screenshot capture (ADR 0008)', () => {
+    const image = { mediaType: 'image/png', data: 'iVBORw0KGgo=' };
+
+    it('suggests fields and flags a posting that is already tracked', async () => {
+      const read = buildServer(
+        await Offerdesk.open(':memory:', {
+          postingReader: {
+            read: async (images, today) => ({
+              isPosting: true,
+              company: 'Acme',
+              role: `Data Intern (${images.length} image, ${today.length}-char date)`,
+            }),
+          },
+        }),
+      );
+      expect((await read.inject({ method: 'GET', url: '/api/health' })).json().screenshots).toBe(
+        true,
+      );
+      const res = await read.inject({
+        method: 'POST',
+        url: '/api/capture/screenshots',
+        payload: { images: [image] },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        draft: { isPosting: true, company: 'Acme', role: 'Data Intern (1 image, 10-char date)' },
+        duplicateOf: null,
+      });
+      // Nothing was saved.
+      expect((await read.inject({ method: 'GET', url: '/api/applications' })).json()).toEqual([]);
+      await read.close();
+    });
+
+    it('answers 503 without a reader and 400 for bad images', async () => {
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/capture/screenshots',
+            payload: { images: [image] },
+          })
+        ).statusCode,
+      ).toBe(503);
+      const tooMany = await app.inject({
+        method: 'POST',
+        url: '/api/capture/screenshots',
+        payload: { images: Array(6).fill(image) },
+      });
+      expect(tooMany.statusCode).toBe(400);
     });
   });
 });

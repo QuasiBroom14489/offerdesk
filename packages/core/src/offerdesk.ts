@@ -17,12 +17,15 @@ import {
   NewApplication,
   NewContact,
   type PipelineStats,
+  type PostingDraft,
+  ReadScreenshots,
   type Report,
   type Status,
   ViewSpec,
   type ViewSpecInput,
 } from '@offerdesk/shared';
 import type { OfferdeskConfig } from './config.js';
+import { type PostingReader, postingReaderFromEnv } from './connectors/anthropic/index.js';
 import { Connections } from './connectors/connections.js';
 import { credentialStoreFromEnv } from './connectors/credentials.js';
 import {
@@ -36,7 +39,7 @@ import { isoDate } from './dates.js';
 import { type Db, openDb } from './db.js';
 import { foldApplication, followUpsDue, groupBy, pipelineStats } from './derive.js';
 import { Documents, foldAttachments } from './documents.js';
-import { NotFoundError } from './errors.js';
+import { NotFoundError, UnavailableError } from './errors.js';
 import { EventLog } from './events.js';
 import { fileStoreFromEnv } from './files/index.js';
 import { type FileStore, sha256 } from './files/store.js';
@@ -87,6 +90,8 @@ export interface OfferdeskOptions {
   google?: GoogleConfig | null;
   /** HTTP for connectors; tests pass a fake. */
   fetch?: Fetch;
+  /** Reads postings out of screenshots (ADR 0008). Without one, screenshot capture is off. */
+  postingReader?: PostingReader | null;
 }
 
 /** What happened to one picked Drive file. */
@@ -185,6 +190,7 @@ export class Offerdesk {
       files: fileStoreFromEnv(cfg, env),
       credentials: credentialStoreFromEnv(db, cfg, env),
       google: googleConfigFromEnv(env),
+      postingReader: postingReaderFromEnv(env),
       ...opts,
     });
   }
@@ -311,6 +317,34 @@ export class Offerdesk {
       }
       return { application: await this.getApplication(app.id), duplicate: false };
     });
+  }
+
+  /** Whether this deployment can read screenshots (ADR 0008). */
+  get canReadScreenshots(): boolean {
+    return Boolean(this.opts.postingReader);
+  }
+
+  /**
+   * Read a posting out of screenshots and suggest the fields (ADR 0008).
+   * Writes nothing: the user checks the draft and saves it with
+   * `capturePosting`. `duplicateOf` is the application it already matches.
+   */
+  async readPostingScreenshots(
+    input: ReadScreenshots,
+  ): Promise<{ draft: PostingDraft; duplicateOf: Application | null }> {
+    const reader = this.opts.postingReader;
+    if (!reader) {
+      throw new UnavailableError(
+        'reading screenshots needs the server running on your computer, signed in to Claude Code',
+      );
+    }
+    const { images } = ReadScreenshots.parse(input);
+    const draft = await reader.read(images, isoDate(this.now()));
+    const duplicateOf =
+      draft.isPosting && draft.company && draft.role
+        ? await this.findExisting(draft.company, draft.role, draft.postingUrl ?? null)
+        : null;
+    return { draft, duplicateOf };
   }
 
   async flag(id: string, flag: Flag, reason?: string): Promise<Application> {

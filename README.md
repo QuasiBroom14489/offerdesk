@@ -54,6 +54,12 @@ the page and calls `capture_posting`, and the posting lands on Home under
 `dashboard`, `follow_ups`, `deadlines`, `list_applications`, `set_status`, and
 `run_view` / `export_view` for saved tables (*"who haven't I heard back from?"*).
 
+No assistant handy? Press `N` and paste (⌘V) or drop screenshots of the posting
+into **Add an application**. Claude fills in the fields, you check them, and it's
+added the same way. It runs on your Claude subscription through the Claude
+Agent SDK, so it works when the server runs on a computer signed in to Claude
+Code, not on Vercel (ADR 0008).
+
 ## Quickstart
 
 Requires Node 24+ and pnpm.
@@ -104,6 +110,7 @@ pnpm lint        # biome
 - [x] Minimal light UI with traffic-light signals
 - [x] Workspaces, connections and credential stores (service-ready seams)
 - [x] MCP server; capture a posting from the screen, flagged "get started"
+- [x] Capture a posting from pasted screenshots in the dashboard
 - [x] Table builder, saved views, CSV / Excel export
 - [ ] Google Sheets push (with the Google connector)
 - [ ] Documents library and Google Drive connector

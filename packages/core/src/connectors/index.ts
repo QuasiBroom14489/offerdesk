@@ -1,3 +1,4 @@
+export * from './anthropic/index.js';
 export { Connections } from './connections.js';
 export {
   credentialStoreFromEnv,

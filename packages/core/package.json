@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.300",
     "@libsql/client": "^0.18.0",
     "@offerdesk/shared": "workspace:*",
     "@vercel/blob": "^2.8.0",

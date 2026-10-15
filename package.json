@@ -8,6 +8,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "start": "node apps/server/dist/cli.js serve",
+    "start:hosted": "node --env-file=.env.mcp apps/server/dist/cli.js serve",
     "start:demo": "OFFERDESK_DB=data/demo.db node apps/server/dist/cli.js serve",
     "dev": "pnpm --parallel --filter @offerdesk/web --filter @offerdesk/server dev",
     "seed:demo": "node apps/server/dist/cli.js seed-demo",

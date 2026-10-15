@@ -79,6 +79,49 @@ export const CapturePosting = z.object({
 });
 export type CapturePosting = z.input<typeof CapturePosting>;
 
+/** A long posting can take a few screens; more than this is a page, not a posting. */
+export const MAX_SCREENSHOTS = 5;
+/** Base64 across all screenshots. Under Vercel's 4.5 MB request cap with room for JSON. */
+export const MAX_SCREENSHOT_BASE64 = 4_000_000;
+
+export const PostingImage = z.object({
+  mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+  /** Base64, no `data:` prefix. */
+  data: z.string().min(1),
+});
+export type PostingImage = z.infer<typeof PostingImage>;
+
+export const ReadScreenshots = z.object({
+  images: z
+    .array(PostingImage)
+    .min(1)
+    .max(MAX_SCREENSHOTS)
+    .refine(
+      (imgs) => imgs.reduce((n, i) => n + i.data.length, 0) <= MAX_SCREENSHOT_BASE64,
+      'the screenshots are too large together',
+    ),
+});
+export type ReadScreenshots = z.infer<typeof ReadScreenshots>;
+
+/**
+ * What a screenshot reading suggests (ADR 0008). Nothing is saved: the user
+ * checks the fields and then sends them as a `CapturePosting`.
+ */
+export const PostingDraft = CapturePosting.pick({
+  location: true,
+  deadline: true,
+  postingUrl: true,
+  pay: true,
+  source: true,
+  season: true,
+  postingText: true,
+}).extend({
+  isPosting: z.boolean(),
+  company: z.string().trim().min(1).nullish(),
+  role: z.string().trim().min(1).nullish(),
+});
+export type PostingDraft = z.input<typeof PostingDraft>;
+
 export const Contact = z.object({
   id: z.string(),
   companyId: z.string().nullable(),

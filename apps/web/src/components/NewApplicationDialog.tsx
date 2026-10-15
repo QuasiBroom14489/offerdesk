@@ -1,20 +1,27 @@
 import {
   type Application,
   type PostingDraft,
+  type ScreenshotRead,
   STATUS_LABELS,
   STATUSES,
   type Status,
 } from '@offerdesk/shared';
 import { type ClipboardEvent, type DragEvent, type FormEvent, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
-import { useAddApplication, useCapturePosting, useHealth, useReadScreenshots } from '../api';
+import {
+  cancelScreenshotRead,
+  getScreenshotRead,
+  startScreenshotRead,
+  useAddApplication,
+  useCapturePosting,
+  useHealth,
+} from '../api';
 import { imageFiles, prepareScreenshots } from '../screenshots';
 import { buttonClass, Dialog, Field, inputClass, quietButtonClass } from './Dialog';
 
 export function NewApplicationDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const add = useAddApplication();
   const capture = useCapturePosting();
-  const read = useReadScreenshots();
   const health = useHealth();
   const [, navigate] = useLocation();
   const [error, setError] = useState<string | null>(null);
@@ -26,37 +33,68 @@ export function NewApplicationDialog({ open, onClose }: { open: boolean; onClose
   /** Bumped on each reading so the uncontrolled inputs pick up new defaults. */
   const [readCount, setReadCount] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
-  const canRead = health.data?.screenshots === true;
+  const mode = health.data?.screenshots ?? null;
+  const canRead = mode !== null;
+  /** The reading in flight. Queued ones carry an id to poll and to cancel. */
+  const [reading, setReading] = useState<ScreenshotRead | 'sending' | null>(null);
+  /** Which reading is current; a newer one or closing the dialog stops the old poll. */
+  const readToken = useRef(0);
+  const busy = reading !== null;
+
+  /** Stop following the current reading, and drop it from the queue if it's there. */
+  const abandonReading = () => {
+    readToken.current++;
+    if (reading && reading !== 'sending' && reading.id) {
+      void cancelScreenshotRead(reading.id).catch(() => {});
+    }
+    setReading(null);
+  };
 
   const close = () => {
+    abandonReading();
     for (const url of previews) URL.revokeObjectURL(url);
     setPreviews([]);
     setDraft(null);
     setDuplicateOf(null);
     setError(null);
-    read.reset();
     onClose();
   };
 
   const readScreenshots = async (files: File[]) => {
-    if (files.length === 0 || read.isPending) return;
+    if (files.length === 0 || busy) return;
+    const token = ++readToken.current;
     setError(null);
     for (const url of previews) URL.revokeObjectURL(url);
     setPreviews(files.map((f) => URL.createObjectURL(f)));
+    setReading('sending');
     try {
-      const { draft: d, duplicateOf: dup } = await read.mutateAsync(
-        await prepareScreenshots(files),
-      );
-      if (!d.isPosting) {
+      let r = await startScreenshotRead(await prepareScreenshots(files));
+      // Queued for the owner's computer (ADR 0009): poll until it's read.
+      while ((r.status === 'queued' || r.status === 'reading') && r.id) {
+        if (token !== readToken.current) return;
+        setReading(r);
+        await new Promise((done) => setTimeout(done, 1500));
+        if (token !== readToken.current) return;
+        r = await getScreenshotRead(r.id);
+      }
+      if (token !== readToken.current) return;
+      setReading(null);
+      if (r.status === 'failed' || !r.draft) {
+        setError(`Couldn't read the screenshots: ${r.error ?? 'unknown error'}`);
+        return;
+      }
+      if (!r.draft.isPosting) {
         setError(
           "That doesn't look like a job posting. Fill it in below, or try another screenshot.",
         );
         return;
       }
-      setDraft(d);
-      setDuplicateOf(dup);
+      setDraft(r.draft);
+      setDuplicateOf(r.duplicateOf);
       setReadCount((n) => n + 1);
     } catch (err) {
+      if (token !== readToken.current) return;
+      setReading(null);
       setError((err as Error).message);
     }
   };
@@ -157,20 +195,28 @@ export function NewApplicationDialog({ open, onClose }: { open: boolean; onClose
               </div>
             )}
             <p className="flex-1 text-muted">
-              {read.isPending
-                ? 'Reading the posting…'
+              {reading
+                ? readingMessage(reading)
                 : draft
                   ? 'Filled in from the screenshot. Check the fields before adding.'
-                  : 'Paste (⌘V) or drop screenshots of a posting to fill this in.'}
+                  : mode === 'queue'
+                    ? 'Paste (⌘V) or drop screenshots of a posting. Your computer reads them.'
+                    : 'Paste (⌘V) or drop screenshots of a posting to fill this in.'}
             </p>
-            <button
-              type="button"
-              disabled={read.isPending}
-              onClick={() => fileInput.current?.click()}
-              className={quietButtonClass}
-            >
-              {previews.length > 0 ? 'Replace' : 'Choose…'}
-            </button>
+            {reading && reading !== 'sending' ? (
+              <button type="button" onClick={abandonReading} className={quietButtonClass}>
+                Stop
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => fileInput.current?.click()}
+                className={quietButtonClass}
+              >
+                {previews.length > 0 ? 'Replace' : 'Choose…'}
+              </button>
+            )}
             <input
               ref={fileInput}
               type="file"
@@ -284,7 +330,7 @@ export function NewApplicationDialog({ open, onClose }: { open: boolean; onClose
           </button>
           <button
             type="submit"
-            disabled={add.isPending || capture.isPending || read.isPending}
+            disabled={add.isPending || capture.isPending || busy}
             className={buttonClass}
           >
             Add application
@@ -293,4 +339,24 @@ export function NewApplicationDialog({ open, onClose }: { open: boolean; onClose
       </form>
     </Dialog>
   );
+}
+
+/** A reader that checked in within this long is running (it checks in every 30 s). */
+const READER_ONLINE_MS = 90_000;
+
+function readingMessage(r: ScreenshotRead | 'sending'): string {
+  if (r === 'sending' || r.status === 'reading') return 'Reading the posting…';
+  if (r.readerSeenAt !== null && Date.now() - r.readerSeenAt < READER_ONLINE_MS) {
+    return 'Waiting for your computer to read it…';
+  }
+  return r.readerSeenAt === null
+    ? 'Queued. No reader has run yet: start `pnpm reader` on your computer.'
+    : `Queued. Your computer's reader was last seen ${ago(r.readerSeenAt)}; it reads this when it's back.`;
+}
+
+function ago(ts: number): string {
+  const min = Math.round((Date.now() - ts) / 60_000);
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
 }

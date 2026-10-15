@@ -188,6 +188,30 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX idx_document_versions_source
     ON document_versions(workspace_id, source, source_ref);
   `,
+  // v8 — screenshot readings queued for the owner's computer (ADR 0009). A
+  // short-lived work queue, not history: rows change status and are purged
+  // a day after they finish. The images live in the FileStore meanwhile.
+  `
+  CREATE TABLE screenshot_reads (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    images       TEXT NOT NULL,
+    today        TEXT NOT NULL,
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    draft        TEXT,
+    error        TEXT,
+    created_at   INTEGER NOT NULL,
+    claimed_at   INTEGER,
+    finished_at  INTEGER
+  );
+  CREATE INDEX idx_screenshot_reads_queue ON screenshot_reads(workspace_id, status, created_at);
+
+  CREATE TABLE screenshot_readers (
+    workspace_id TEXT PRIMARY KEY,
+    seen_at      INTEGER NOT NULL
+  );
+  `,
 ];
 
 /** A value SQLite can bind. */

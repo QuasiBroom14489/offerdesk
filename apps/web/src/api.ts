@@ -13,10 +13,11 @@ import type {
   NewApplication,
   NewContact,
   NewView,
-  PostingDraft,
   PostingImage,
   Report,
   SavedView,
+  ScreenshotMode,
+  ScreenshotRead,
   Status,
   ViewPatch,
   ViewSpec,
@@ -87,16 +88,19 @@ export const useAddApplication = () =>
     onSuccess: invalidateAll,
   });
 
-/** Read a posting off screenshots. Suggests fields; saves nothing (ADR 0008). */
-export const useReadScreenshots = () =>
-  useMutation({
-    mutationFn: (images: PostingImage[]) =>
-      request<{ draft: PostingDraft; duplicateOf: Application | null }>(
-        'POST',
-        '/api/capture/screenshots',
-        { images },
-      ),
-  });
+/**
+ * Read a posting off screenshots. Suggests fields; saves nothing. Comes back
+ * done when the server reads it (ADR 0008), or queued for the owner's
+ * computer, to poll with `getScreenshotRead` (ADR 0009).
+ */
+export const startScreenshotRead = (images: PostingImage[]) =>
+  request<ScreenshotRead>('POST', '/api/capture/screenshots', { images });
+
+export const getScreenshotRead = (id: string) =>
+  request<ScreenshotRead>('GET', `/api/capture/screenshots/${encodeURIComponent(id)}`);
+
+export const cancelScreenshotRead = (id: string) =>
+  request<void>('DELETE', `/api/capture/screenshots/${encodeURIComponent(id)}`);
 
 export const useCapturePosting = () =>
   useMutation({
@@ -210,13 +214,16 @@ export function exportUrl(format: 'csv' | 'xlsx', viewId: string, spec: ViewSpec
 
 /**
  * `files` is the document store's name, or null when uploads aren't set up
- * here; `screenshots` is whether the server can read posting screenshots.
+ * here; `screenshots` is where posting screenshots get read, or null.
  */
 export const useHealth = () =>
   useQuery({
     queryKey: ['health'],
     queryFn: () =>
-      request<{ ok: boolean; files: string | null; screenshots: boolean }>('GET', '/api/health'),
+      request<{ ok: boolean; files: string | null; screenshots: ScreenshotMode | null }>(
+        'GET',
+        '/api/health',
+      ),
     staleTime: Number.POSITIVE_INFINITY,
   });
 

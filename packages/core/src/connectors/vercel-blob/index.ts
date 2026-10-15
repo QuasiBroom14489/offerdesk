@@ -1,4 +1,4 @@
-import { get, put } from '@vercel/blob';
+import { del, get, put } from '@vercel/blob';
 import type { FileStore } from '../../files/store.js';
 
 /**
@@ -28,6 +28,10 @@ export class VercelBlobFileStore implements FileStore {
     const res = await get(this.path(key), { access: 'private' });
     if (res?.statusCode !== 200) return null;
     return new Uint8Array(await new Response(res.stream).arrayBuffer());
+  }
+
+  async delete(key: string): Promise<void> {
+    await del(this.path(key));
   }
 }
 

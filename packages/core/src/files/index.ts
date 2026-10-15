@@ -1,7 +1,14 @@
 import { VercelBlobFileStore, vercelBlobConfigured } from '../connectors/vercel-blob/index.js';
 import { DiskFileStore, type FileStore } from './store.js';
 
-export { DiskFileStore, type FileStore, fileKey, MemoryFileStore, sha256 } from './store.js';
+export {
+  DiskFileStore,
+  type FileStore,
+  fileKey,
+  MemoryFileStore,
+  screenshotKey,
+  sha256,
+} from './store.js';
 export { VercelBlobFileStore };
 
 /**

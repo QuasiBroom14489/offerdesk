@@ -24,3 +24,4 @@ export {
 } from './offerdesk.js';
 export * from './reports/index.js';
 export { type ViewSheet, ViewSheets } from './reports/view-sheets.js';
+export { type ClaimedRead, ScreenshotQueue, STALE_CLAIM_MS } from './screenshots.js';

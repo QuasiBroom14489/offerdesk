@@ -6,9 +6,11 @@ import { buildServer } from './app.js';
 
 const USAGE = `offerdesk <command>
 
-  serve        start the API and dashboard
-  migrate      bring the configured database up to date (e.g. a hosted one)
-  seed-demo    reset $OFFERDESK_DB (default data/demo.db) with fictional data
+  serve            start the API and dashboard
+  read-screenshots read screenshots queued by the hosted dashboard, on this
+                   computer's Claude login (ADR 0009); runs until stopped
+  migrate          bring the configured database up to date (e.g. a hosted one)
+  seed-demo        reset $OFFERDESK_DB (default data/demo.db) with fictional data
 `;
 
 async function main(argv: string[]): Promise<void> {
@@ -20,7 +22,8 @@ async function main(argv: string[]): Promise<void> {
   switch (command) {
     case 'serve': {
       const cfg = loadConfig();
-      const desk = await Offerdesk.fromConfig(cfg);
+      // A hosted database (`start:hosted`) is opened in the owner's workspace.
+      const desk = await Offerdesk.fromConfig(cfg, { workspaceId: cfg.workspaceId });
       const app = buildServer(desk, {
         webRoot: resolve(REPO_ROOT, 'apps/web/dist'),
         logger: true,
@@ -35,6 +38,10 @@ async function main(argv: string[]): Promise<void> {
       process.on('SIGINT', close);
       process.on('SIGTERM', close);
       await app.listen({ port: cfg.port, host: '127.0.0.1' });
+      return;
+    }
+    case 'read-screenshots': {
+      await readScreenshots();
       return;
     }
     case 'migrate': {
@@ -67,6 +74,55 @@ async function main(argv: string[]): Promise<void> {
       process.stdout.write(USAGE);
       process.exitCode = command ? 1 : 0;
   }
+}
+
+/** How often an idle reader looks for work, and how often it checks in. */
+const POLL_MS = 2000;
+const HEARTBEAT_MS = 30_000;
+
+/**
+ * Read screenshots the hosted dashboard queued (ADR 0009), with the Claude
+ * login on this computer. Run with the hosted database's env file
+ * (`pnpm reader`), so it works on the owner's workspace.
+ */
+async function readScreenshots(): Promise<void> {
+  const cfg = loadConfig();
+  const desk = await Offerdesk.fromConfig(cfg, { workspaceId: cfg.workspaceId });
+  if (desk.screenshotMode !== 'here' || !desk.screenshotQueue) {
+    desk.close();
+    throw new Error(
+      'the reader needs a file store (BLOB_READ_WRITE_TOKEN) and Claude Code on this computer',
+    );
+  }
+  let stopping = false;
+  const stop = () => {
+    stopping = true;
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  const log = (msg: string) => console.log(`${new Date().toISOString()} ${msg}`);
+  log(`reading screenshots for ${cfg.workspaceId} on ${describeDb(cfg.dbUrl)}`);
+
+  let lastBeat = 0;
+  while (!stopping) {
+    try {
+      if (Date.now() - lastBeat >= HEARTBEAT_MS) {
+        await desk.screenshotQueue.heartbeat();
+        lastBeat = Date.now();
+      }
+      const done = await desk.readQueuedScreenshots();
+      if (done) {
+        log(`${done.status} ${done.id}`);
+        continue;
+      }
+    } catch (err) {
+      // A network blip shouldn't stop the reader; it tries again next poll.
+      log(`error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+  desk.close();
+  log('stopped');
 }
 
 /** A hosted URL without credentials, or the file path. */

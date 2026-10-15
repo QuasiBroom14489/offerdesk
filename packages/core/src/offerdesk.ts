@@ -20,6 +20,8 @@ import {
   type PostingDraft,
   ReadScreenshots,
   type Report,
+  type ScreenshotMode,
+  type ScreenshotRead,
   type Status,
   ViewSpec,
   type ViewSpecInput,
@@ -49,6 +51,7 @@ import { DEFAULT_VIEW_ID } from './reports/presets.js';
 import { runView } from './reports/run.js';
 import { type ViewSheet, ViewSheets } from './reports/view-sheets.js';
 import { Views } from './reports/views.js';
+import { ScreenshotQueue } from './screenshots.js';
 
 interface ApplicationRow {
   id: string;
@@ -140,6 +143,8 @@ export class Offerdesk {
   readonly documents: Documents;
   readonly google: GoogleService;
   readonly viewSheets: ViewSheets;
+  /** Screenshot readings waiting for the owner's reader; null without file storage (ADR 0009). */
+  readonly screenshotQueue: ScreenshotQueue | null;
   readonly workspaceId: string;
   private readonly followUpAfterDays: number;
   private readonly now: () => number;
@@ -156,6 +161,9 @@ export class Offerdesk {
     this.views = new Views(db, this.workspaceId, this.now);
     this.documents = new Documents(db, this.workspaceId, this.events, opts.files ?? null, this.now);
     this.viewSheets = new ViewSheets(db, this.workspaceId);
+    this.screenshotQueue = opts.files
+      ? new ScreenshotQueue(db, this.workspaceId, opts.files, this.now)
+      : null;
     this.google = new GoogleService(
       opts.google ?? null,
       opts.credentials ?? null,
@@ -319,14 +327,90 @@ export class Offerdesk {
     });
   }
 
-  /** Whether this deployment can read screenshots (ADR 0008). */
-  get canReadScreenshots(): boolean {
-    return Boolean(this.opts.postingReader);
+  /**
+   * Where screenshots get read: `here` when this process can read them itself
+   * (ADR 0008), `queue` when it can only hold them for the owner's reader
+   * (ADR 0009), or null when neither.
+   */
+  get screenshotMode(): ScreenshotMode | null {
+    if (this.opts.postingReader) return 'here';
+    return this.screenshotQueue ? 'queue' : null;
   }
 
   /**
-   * Read a posting out of screenshots and suggest the fields (ADR 0008).
-   * Writes nothing: the user checks the draft and saves it with
+   * Start reading a posting out of screenshots. Read here, the result comes
+   * back done; otherwise it's queued for the owner's reader, to poll with
+   * `screenshotRead`. Either way nothing is saved until the user confirms.
+   */
+  async startScreenshotRead(input: ReadScreenshots): Promise<ScreenshotRead> {
+    const { images } = ReadScreenshots.parse(input);
+    if (this.screenshotMode === 'here') {
+      const { draft, duplicateOf } = await this.readPostingScreenshots({ images });
+      return { id: null, status: 'done', draft, duplicateOf, error: null, readerSeenAt: null };
+    }
+    const queue = this.requireScreenshotQueue();
+    return this.withDuplicate(await queue.enqueue(images, isoDate(this.now())));
+  }
+
+  /** A queued reading, with the application it matches once it's read. */
+  async screenshotRead(id: string): Promise<ScreenshotRead> {
+    return this.withDuplicate(await this.requireScreenshotQueue().get(id));
+  }
+
+  async cancelScreenshotRead(id: string): Promise<void> {
+    await this.requireScreenshotQueue().cancel(id);
+  }
+
+  /**
+   * The reader's one step (ADR 0009): claim the oldest queued reading, read it
+   * with this process's reader, record the draft. Null when nothing is waiting.
+   */
+  async readQueuedScreenshots(): Promise<{ id: string; status: 'done' | 'failed' } | null> {
+    const reader = this.opts.postingReader;
+    if (!reader) throw new UnavailableError('this process has no screenshot reader');
+    const queue = this.requireScreenshotQueue();
+    const job = await queue.claim();
+    if (!job) return null;
+    try {
+      await queue.complete(job.id, await reader.read(job.images, job.today));
+      return { id: job.id, status: 'done' };
+    } catch (err) {
+      await queue.fail(job.id, (err as Error).message);
+      return { id: job.id, status: 'failed' };
+    }
+  }
+
+  private requireScreenshotQueue(): ScreenshotQueue {
+    if (!this.screenshotQueue) {
+      throw new UnavailableError(
+        'reading screenshots needs the server running on your computer, signed in to Claude Code',
+      );
+    }
+    return this.screenshotQueue;
+  }
+
+  private async withDuplicate(read: {
+    id: string;
+    status: ScreenshotRead['status'];
+    draft: PostingDraft | null;
+    error: string | null;
+  }): Promise<ScreenshotRead> {
+    const d = read.draft;
+    const duplicateOf =
+      d?.isPosting && d.company && d.role
+        ? await this.findExisting(d.company, d.role, d.postingUrl ?? null)
+        : null;
+    const waiting = read.status === 'queued' || read.status === 'reading';
+    return {
+      ...read,
+      duplicateOf,
+      readerSeenAt: waiting ? await this.requireScreenshotQueue().readerSeenAt() : null,
+    };
+  }
+
+  /**
+   * Read a posting out of screenshots in this process and suggest the fields
+   * (ADR 0008). Writes nothing: the user checks the draft and saves it with
    * `capturePosting`. `duplicateOf` is the application it already matches.
    */
   async readPostingScreenshots(

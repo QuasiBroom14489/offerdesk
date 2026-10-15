@@ -57,8 +57,10 @@ the page and calls `capture_posting`, and the posting lands on Home under
 No assistant handy? Press `N` and paste (⌘V) or drop screenshots of the posting
 into **Add an application**. Claude fills in the fields, you check them, and it's
 added the same way. It runs on your Claude subscription through the Claude
-Agent SDK, so it works when the server runs on a computer signed in to Claude
-Code, not on Vercel (ADR 0008).
+Agent SDK, on a computer signed in to Claude Code (ADR 0008). On the hosted
+dashboard the screenshots wait in a queue, and `pnpm reader` on your computer
+reads them and sends the fields back (ADR 0009). Run
+`scripts/install-reader.sh` to keep it running in the background on macOS.
 
 ## Quickstart
 

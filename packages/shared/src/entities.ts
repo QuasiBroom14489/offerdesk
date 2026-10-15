@@ -122,6 +122,28 @@ export const PostingDraft = CapturePosting.pick({
 });
 export type PostingDraft = z.input<typeof PostingDraft>;
 
+/**
+ * Where screenshots get read: `here`, by the server itself (ADR 0008), or
+ * `queue`, by a reader on the owner's computer that picks them up (ADR 0009).
+ */
+export type ScreenshotMode = 'here' | 'queue';
+
+/**
+ * A screenshot reading. Read here, it comes back `done` with no id. Queued,
+ * it's `queued` until the owner's reader claims it, then `reading`, then
+ * `done` or `failed`; poll it by id.
+ */
+export interface ScreenshotRead {
+  id: string | null;
+  status: 'queued' | 'reading' | 'done' | 'failed';
+  draft: PostingDraft | null;
+  /** The application the posting already matches, once read. */
+  duplicateOf: Application | null;
+  error: string | null;
+  /** Queued only: when this workspace's reader last checked in, or null if never. */
+  readerSeenAt: number | null;
+}
+
 export const Contact = z.object({
   id: z.string(),
   companyId: z.string().nullable(),

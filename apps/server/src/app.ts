@@ -161,12 +161,13 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
 
   /**
    * `files` names the document store, or null when uploads aren't available
-   * here; `screenshots` says whether a posting can be read from screenshots.
+   * here; `screenshots` is where screenshots get read: `here`, `queue` (by
+   * the owner's computer, ADR 0009) or null.
    */
   app.get('/api/health', async () => ({
     ok: true,
     files: base.documents.storage,
-    screenshots: base.canReadScreenshots,
+    screenshots: base.screenshotMode,
   }));
 
   app.get('/api/dashboard', async (req) => req.desk.dashboard());
@@ -207,10 +208,26 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
     return reply.status(result.duplicate ? 200 : 201).send(result);
   });
 
-  /** Suggest a capture from screenshots of a posting (ADR 0008). Saves nothing. */
-  app.post('/api/capture/screenshots', { bodyLimit: 4_500_000 }, async (req) =>
-    req.desk.readPostingScreenshots(ReadScreenshots.parse(req.body)),
-  );
+  /**
+   * Suggest a capture from screenshots of a posting. Saves nothing. 200 when
+   * read here (ADR 0008); 202 when queued for the owner's reader, to poll
+   * below (ADR 0009).
+   */
+  app.post('/api/capture/screenshots', { bodyLimit: 4_500_000 }, async (req, reply) => {
+    const read = await req.desk.startScreenshotRead(ReadScreenshots.parse(req.body));
+    return reply.status(read.status === 'done' ? 200 : 202).send(read);
+  });
+
+  app.get('/api/capture/screenshots/:id', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return req.desk.screenshotRead(id);
+  });
+
+  app.delete('/api/capture/screenshots/:id', async (req, reply) => {
+    const { id } = IdParams.parse(req.params);
+    await req.desk.cancelScreenshotRead(id);
+    return reply.status(204).send();
+  });
 
   app.post('/api/applications/:id/notes', async (req, reply) => {
     const { id } = IdParams.parse(req.params);

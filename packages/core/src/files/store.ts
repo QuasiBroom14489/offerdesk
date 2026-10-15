@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /**
@@ -14,6 +14,8 @@ export interface FileStore {
   put(key: string, bytes: Uint8Array, contentType: string): Promise<void>;
   /** The bytes, or null when nothing is stored under the key. */
   get(key: string): Promise<Uint8Array | null>;
+  /** Remove what's under the key; nothing there is fine. Only for keys that aren't content addresses. */
+  delete(key: string): Promise<void>;
 }
 
 export function sha256(bytes: Uint8Array): string {
@@ -22,6 +24,14 @@ export function sha256(bytes: Uint8Array): string {
 
 export function fileKey(workspaceId: string, hash: string): string {
   return `${encodeURIComponent(workspaceId)}/${hash}`;
+}
+
+/**
+ * A queued screenshot (ADR 0009). Not a content address: it lives only until
+ * the reading finishes, then it's deleted.
+ */
+export function screenshotKey(workspaceId: string, readId: string, n: number): string {
+  return `${encodeURIComponent(workspaceId)}/screenshots/${readId}-${n}`;
 }
 
 /** Local files under `data/files/`. Writes land in a temp file first, then rename. */
@@ -50,6 +60,10 @@ export class DiskFileStore implements FileStore {
     const path = this.path(key);
     return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
   }
+
+  async delete(key: string): Promise<void> {
+    rmSync(this.path(key), { force: true });
+  }
 }
 
 /** For tests. */
@@ -63,5 +77,9 @@ export class MemoryFileStore implements FileStore {
 
   async get(key: string): Promise<Uint8Array | null> {
     return this.files.get(key)?.bytes ?? null;
+  }
+
+  async delete(key: string): Promise<void> {
+    this.files.delete(key);
   }
 }

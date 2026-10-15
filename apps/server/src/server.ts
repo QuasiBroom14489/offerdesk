@@ -10,8 +10,8 @@ import { buildServer } from './app.js';
  * integrations inject: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, CLERK_*, and
  * BLOB_STORE_ID once a private Blob store is connected (ADR 0006), and the
  * Google client plus OFFERDESK_CREDENTIALS_KEY set by hand (ADR 0007).
- * Screenshot capture is off here: it runs on a Claude subscription, locally
- * (ADR 0008).
+ * Screenshots aren't read here: they're queued in the Blob store for the
+ * owner's computer, which reads them on their Claude subscription (ADR 0009).
  */
 const desk = await Offerdesk.fromConfig(loadConfig());
 const app = buildServer(desk, { logger: true, auth: 'clerk' });

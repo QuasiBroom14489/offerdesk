@@ -1,6 +1,6 @@
 # 0008 — Capture a posting from screenshots
 
-**Status:** accepted · 2026-10-15
+**Status:** accepted · 2026-10-15 · hosted reading amended by 0009
 
 ## Context
 

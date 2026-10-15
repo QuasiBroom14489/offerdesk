@@ -7,8 +7,11 @@ describe('REST API', () => {
   let desk: Offerdesk;
   let app: FastifyInstance;
 
+  let files: MemoryFileStore;
+
   beforeEach(async () => {
-    desk = await Offerdesk.open(':memory:', { files: new MemoryFileStore() });
+    files = new MemoryFileStore();
+    desk = await Offerdesk.open(':memory:', { files });
     app = buildServer(desk);
   });
 
@@ -349,7 +352,7 @@ describe('REST API', () => {
       expect((await bare.inject({ method: 'GET', url: '/api/health' })).json()).toEqual({
         ok: true,
         files: null,
-        screenshots: false,
+        screenshots: null,
       });
       await bare.close();
     });
@@ -371,7 +374,7 @@ describe('REST API', () => {
         }),
       );
       expect((await read.inject({ method: 'GET', url: '/api/health' })).json().screenshots).toBe(
-        true,
+        'here',
       );
       const res = await read.inject({
         method: 'POST',
@@ -380,30 +383,76 @@ describe('REST API', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({
+        id: null,
+        status: 'done',
         draft: { isPosting: true, company: 'Acme', role: 'Data Intern (1 image, 10-char date)' },
         duplicateOf: null,
+        error: null,
+        readerSeenAt: null,
       });
       // Nothing was saved.
       expect((await read.inject({ method: 'GET', url: '/api/applications' })).json()).toEqual([]);
       await read.close();
     });
 
-    it('answers 503 without a reader and 400 for bad images', async () => {
+    it('answers 503 with neither a reader nor a file store, and 400 for bad images', async () => {
+      const bare = buildServer(await Offerdesk.open(':memory:'));
       expect(
         (
-          await app.inject({
+          await bare.inject({
             method: 'POST',
             url: '/api/capture/screenshots',
             payload: { images: [image] },
           })
         ).statusCode,
       ).toBe(503);
+      await bare.close();
       const tooMany = await app.inject({
         method: 'POST',
         url: '/api/capture/screenshots',
         payload: { images: Array(6).fill(image) },
       });
       expect(tooMany.statusCode).toBe(400);
+    });
+  });
+
+  describe("screenshots queued for the owner's reader (ADR 0009)", () => {
+    const image = { mediaType: 'image/png', data: 'iVBORw0KGgo=' };
+
+    it('queues, reports progress, and hands back the draft once read', async () => {
+      // `app` has a file store but no reader, like the hosted function.
+      expect((await app.inject({ method: 'GET', url: '/api/health' })).json().screenshots).toBe(
+        'queue',
+      );
+      const queued = await app.inject({
+        method: 'POST',
+        url: '/api/capture/screenshots',
+        payload: { images: [image] },
+      });
+      expect(queued.statusCode).toBe(202);
+      const { id } = queued.json();
+      expect(queued.json()).toMatchObject({ status: 'queued', draft: null, readerSeenAt: null });
+
+      // The owner's computer: same database and files, plus a reader.
+      const home = new Offerdesk(desk.db, {
+        files,
+        postingReader: { read: async () => ({ isPosting: true, company: 'Acme', role: 'Intern' }) },
+      });
+      await home.screenshotQueue?.heartbeat();
+      expect(await home.readQueuedScreenshots()).toEqual({ id, status: 'done' });
+
+      const done = await app.inject({ method: 'GET', url: `/api/capture/screenshots/${id}` });
+      expect(done.json()).toMatchObject({
+        status: 'done',
+        draft: { company: 'Acme', role: 'Intern' },
+        readerSeenAt: null,
+      });
+      expect(
+        (await app.inject({ method: 'DELETE', url: `/api/capture/screenshots/${id}` })).statusCode,
+      ).toBe(204);
+      expect(
+        (await app.inject({ method: 'GET', url: `/api/capture/screenshots/${id}` })).statusCode,
+      ).toBe(404);
     });
   });
 });

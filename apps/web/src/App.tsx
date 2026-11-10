@@ -7,6 +7,7 @@ import { NewContactDialog } from './components/NewContactDialog';
 import { useHotkeys } from './hotkeys';
 import { ApplicationPage } from './pages/Application';
 import { ApplicationsTable } from './pages/ApplicationsTable';
+import { Autofill } from './pages/Autofill';
 import { Board } from './pages/Board';
 import { Documents } from './pages/Documents';
 import { Home } from './pages/Home';
@@ -18,6 +19,7 @@ const NAV = [
   { path: '/board', label: 'Board', key: 'B' },
   { path: '/applications', label: 'Applications', key: 'A' },
   { path: '/people', label: 'People', key: 'P' },
+  { path: '/autofill', label: 'Autofill', key: 'F' },
   { path: '/documents', label: 'Documents', key: 'D' },
   { path: '/settings', label: 'Settings', key: 'S' },
 ];
@@ -38,6 +40,7 @@ export function App() {
       'g b': () => navigate('/board'),
       'g a': () => navigate('/applications'),
       'g p': () => navigate('/people'),
+      'g f': () => navigate('/autofill'),
       'g d': () => navigate('/documents'),
       'g s': () => navigate('/settings'),
     },
@@ -100,6 +103,7 @@ export function App() {
           <Route path="/applications/:id">{(p) => <ApplicationPage id={p.id} />}</Route>
           <Route path="/people" component={() => <People onNew={openNewContact} />} />
           <Route path="/people/:id">{(p) => <Person id={p.id} />}</Route>
+          <Route path="/autofill" component={Autofill} />
           <Route path="/documents" component={Documents} />
           <Route path="/settings" component={Settings} />
           <Route>

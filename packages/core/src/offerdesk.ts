@@ -45,6 +45,7 @@ import { NotFoundError, UnavailableError } from './errors.js';
 import { EventLog } from './events.js';
 import { fileStoreFromEnv } from './files/index.js';
 import { type FileStore, sha256 } from './files/store.js';
+import { ProfessionalProfile } from './profile/service.js';
 import { type RowFacts, rowFacts } from './reports/columns.js';
 import { toCsv, toXlsx } from './reports/export.js';
 import { DEFAULT_VIEW_ID } from './reports/presets.js';
@@ -137,6 +138,7 @@ interface Snapshot {
  * thin shells over this class — nothing that decides or remembers lives in them.
  */
 export class Offerdesk {
+  readonly profile: ProfessionalProfile;
   readonly events: EventLog;
   readonly connections: Connections;
   readonly views: Views;
@@ -156,6 +158,7 @@ export class Offerdesk {
     this.workspaceId = opts.workspaceId ?? 'local';
     this.followUpAfterDays = opts.followUpAfterDays ?? 7;
     this.now = opts.now ?? Date.now;
+    this.profile = new ProfessionalProfile(db, this.workspaceId, this.now);
     this.events = new EventLog(db, this.workspaceId);
     this.connections = new Connections(db, this.workspaceId, this.now);
     this.views = new Views(db, this.workspaceId, this.now);

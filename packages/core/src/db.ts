@@ -212,6 +212,21 @@ export const MIGRATIONS: readonly string[] = [
     seen_at      INTEGER NOT NULL
   );
   `,
+  // v9 — professional source facts, reviewed canonical profile, user templates.
+  `
+  CREATE TABLE profile_sources (
+    workspace_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, id)
+  );
+  CREATE TABLE profile_facts (
+    workspace_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, id)
+  );
+  CREATE TABLE profile_entries (
+    workspace_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, id)
+  );
+  `,
 ];
 
 /** A value SQLite can bind. */

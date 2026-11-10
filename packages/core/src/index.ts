@@ -22,6 +22,8 @@ export {
   type OfferdeskOptions,
   type ReportInput,
 } from './offerdesk.js';
+export { extractMarkdown, extractResume } from './profile/extract.js';
+export { ProfessionalProfile } from './profile/service.js';
 export * from './reports/index.js';
 export { type ViewSheet, ViewSheets } from './reports/view-sheets.js';
 export { type ClaimedRead, ScreenshotQueue, STALE_CLAIM_MS } from './screenshots.js';

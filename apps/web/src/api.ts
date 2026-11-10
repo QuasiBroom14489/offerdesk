@@ -387,3 +387,14 @@ export const useSaveToDrive = () =>
         `/api/documents/versions/${versionId}/drive`,
       ),
   });
+
+export const useProfile = () =>
+  useQuery({
+    queryKey: ['profile'],
+    queryFn: () => request<import('@offerdesk/shared').ProfileState>('GET', '/api/profile'),
+  });
+export const profileRequest = async (method: string, path: string, body?: unknown) => {
+  const result = await request<unknown>(method, `/api/profile${path}`, body);
+  await invalidateAll();
+  return result;
+};

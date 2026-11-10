@@ -172,6 +172,36 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
 
   app.get('/api/dashboard', async (req) => req.desk.dashboard());
 
+  // User-selected source uploads only: no server filesystem access, AI or vault indexing.
+  app.get('/api/profile', async (req) => req.desk.profile.state());
+  app.post('/api/profile/sync', { bodyLimit: 6_000_000 }, async (req, reply) => {
+    try {
+      return await req.desk.profile.sync(req.body);
+    } catch (error) {
+      if (error instanceof ZodError) throw error;
+      // Parser errors can contain source snippets; never log or return them.
+      return reply.status(400).send({
+        error: 'Source could not be parsed. Check PDF/Markdown format and size; no changes saved.',
+      });
+    }
+  });
+  app.post('/api/profile/review/:id', async (req) => {
+    await req.desk.profile.review(IdParams.parse(req.params).id, req.body);
+    return { ok: true };
+  });
+  app.post('/api/profile/entries', async (req) => req.desk.profile.save(null, req.body));
+  app.put('/api/profile/entries/:id', async (req) =>
+    req.desk.profile.save(IdParams.parse(req.params).id, req.body),
+  );
+  app.delete('/api/profile/entries/:id', async (req) => {
+    await req.desk.profile.remove(IdParams.parse(req.params).id);
+    return { ok: true };
+  });
+  app.post('/api/profile/entries/:id/used', async (req) => {
+    await req.desk.profile.used(IdParams.parse(req.params).id);
+    return { ok: true };
+  });
+
   // ── applications ──────────────────────────────────────────────────────────
   app.get('/api/applications', async (req) => req.desk.listApplications());
 

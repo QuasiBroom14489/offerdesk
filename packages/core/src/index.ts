@@ -1,3 +1,4 @@
+export { Companies, type CompanyFacts } from './companies.js';
 export { loadConfig, type OfferdeskConfig, REPO_ROOT } from './config.js';
 export * from './connectors/index.js';
 export { daysBetween, isoDate } from './dates.js';

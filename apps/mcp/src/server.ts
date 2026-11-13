@@ -12,8 +12,12 @@ import {
 } from '@offerdesk/core';
 import {
   type Application,
+  CompanyField,
+  type CompanySummary,
   cellText,
   DOCUMENT_KIND_LABELS,
+  FIT_LABELS,
+  Fit,
   FLAGS,
   type Report,
   type SavedView,
@@ -72,6 +76,18 @@ function safe<A>(fn: (args: A) => Promise<Content>): (args: A) => Promise<Conten
       return fail(err);
     }
   };
+}
+
+function companyLine(c: CompanySummary): string {
+  const bits = [c.fit ? FIT_LABELS[c.fit] : 'Fit not set'];
+  if (c.fields.length) bits.push(c.fields.join(', '));
+  bits.push(
+    c.applicationCount
+      ? `${plural(c.applicationCount, 'application')}${c.bestStatus ? `, best: ${STATUS_LABELS[c.bestStatus]}` : ''}`
+      : 'not applied',
+  );
+  if (c.contactCount) bits.push(plural(c.contactCount, 'contact'));
+  return `${c.name} (${bits.join(' · ')}) [${c.id}]`;
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -161,6 +177,87 @@ export function createServer(desk: Offerdesk): McpServer {
         .filter((a) => !q || `${a.companyName} ${a.role}`.toLowerCase().includes(q));
       if (apps.length === 0) return reply('No applications match.');
       return reply(apps.map(line).join('\n'));
+    }),
+  );
+
+  // ── companies (ADR 0011) ────────────────────────────────────────────────
+  server.registerTool(
+    'list_companies',
+    {
+      title: 'List companies',
+      description:
+        'Companies on the target list (or every known company), with fit (Best chance / Good fit / Stretch), fields, and how far any application there has got. Use before researching a new company, or for "which companies should I apply to".',
+      inputSchema: {
+        all: z
+          .boolean()
+          .optional()
+          .describe('Include companies that are only known from an application or contact'),
+        fit: Fit.optional(),
+      },
+      annotations: READ,
+    },
+    safe(async ({ all, fit }) => {
+      const list = (await desk.listCompanies())
+        .filter((c) => all || c.target)
+        .filter((c) => !fit || c.fit === fit);
+      if (list.length === 0) return reply(all ? 'No companies yet.' : 'The target list is empty.');
+      return reply(list.map(companyLine).join('\n'));
+    }),
+  );
+
+  server.registerTool(
+    'company_context',
+    {
+      title: 'Company context for applying',
+      description:
+        "Everything needed to apply to one company: why it's relevant to the user, how to pitch it, which projects to highlight (with their profile descriptions), background on the company, plus every application and person there. Read this before drafting a cover letter, answer or outreach for that company.",
+      inputSchema: { company: z.string().describe('Company id or name') },
+      annotations: READ,
+    },
+    safe(async ({ company }) => {
+      const c = await desk.companyContext(company);
+      return reply(companyLine(c), c);
+    }),
+  );
+
+  server.registerTool(
+    'save_company',
+    {
+      title: 'Save company research',
+      description:
+        "Add a company to the target list, or update its research (matched by name). Only send fields you have something for: an omitted field is left as is. `why` must tie the company to the user's actual experience, and `highlights` should name their projects or roles as they appear in the profile.",
+      inputSchema: {
+        name: z.string().min(1),
+        target: z.boolean().optional().describe('On the target list; defaults to true'),
+        fit: Fit.optional().describe(
+          'strong = best chance from existing experience, good, stretch',
+        ),
+        fields: z.array(CompanyField).optional(),
+        industry: z.string().optional(),
+        website: z.string().optional(),
+        careersUrl: z.string().optional(),
+        why: z
+          .string()
+          .optional()
+          .describe("Why it's relevant to the user, tied to their experience"),
+        angle: z
+          .string()
+          .optional()
+          .describe('How to pitch: what to lead with, which description variant'),
+        highlights: z
+          .array(z.string())
+          .optional()
+          .describe('Projects or roles to cite, by profile name'),
+        context: z
+          .string()
+          .optional()
+          .describe('About the company: business, team, programs, timeline, interview process'),
+      },
+      annotations: CHANGE,
+    },
+    safe(async (input) => {
+      const c = await desk.addCompany(input);
+      return reply(`Saved ${c.name}.`, companyLine(c));
     }),
   );
 
@@ -529,6 +626,8 @@ export const AUTO_APPROVABLE_TOOLS = [
   'run_view',
   'list_documents',
   'capture_posting',
+  'list_companies',
+  'company_context',
 ] as const;
 
 function slug(name: string): string {

@@ -43,6 +43,33 @@ describe('REST API', () => {
     ]);
   });
 
+  it('adds, edits and reads a company by id or name', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/companies',
+      payload: { name: 'Acme Analytics', fit: 'good' },
+    });
+    expect(created.statusCode).toBe(201);
+    const { id } = created.json();
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/api/companies/${id}`,
+      payload: { fit: 'strong', why: 'Event data, like my projects.' },
+    });
+    expect(patched.json()).toMatchObject({ fit: 'strong', why: 'Event data, like my projects.' });
+    const byName = await app.inject({ method: 'GET', url: '/api/companies/acme%20analytics' });
+    expect(byName.json()).toMatchObject({ id, highlightDetails: [] });
+    const bad = await app.inject({
+      method: 'PATCH',
+      url: `/api/companies/${id}`,
+      payload: { fit: 'great' },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: '/api/companies/nobody' })).statusCode).toBe(
+      404,
+    );
+  });
+
   it('rejects invalid input with a 400 and issues', async () => {
     const res = await app.inject({
       method: 'POST',

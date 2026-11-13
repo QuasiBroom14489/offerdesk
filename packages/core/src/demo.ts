@@ -277,4 +277,40 @@ export async function seedDemo(desk: Offerdesk, now: number = Date.now()): Promi
     season: 'Summer 2027',
     postingText: 'Fictional demo posting. Model ridership with public GTFS data.',
   });
+
+  // A target list with research (ADR 0011). Fictional companies and projects.
+  await desk.addCompany({
+    name: 'Northwind Analytics',
+    fit: 'strong',
+    fields: ['Data Analytics'],
+    industry: 'Analytics consulting',
+    website: 'northwind.example',
+    why: 'They build reporting pipelines for retail clients — the same SQL-to-dashboard work as my transit ridership project.',
+    angle:
+      'Lead with the ridership dashboard and its weekly refresh job. Use the Data Analytics description.',
+    highlights: ['Transit ridership dashboard', 'Campus data club'],
+    context:
+      'Summer analyst program, 10 weeks. Two rounds: a SQL screen, then a case on a sample dataset.',
+  });
+  await desk.addCompany({
+    name: 'Kestrel Health',
+    fit: 'good',
+    fields: ['Data Analytics', 'Software Engineering'],
+    industry: 'Health tech',
+    why: 'Clinical operations data and Python tooling; my data-cleaning work carries over, though I have no health-data experience yet.',
+    highlights: ['Transit ridership dashboard'],
+  });
+  await desk.addCompany({
+    name: 'Quarry Labs',
+    fit: 'stretch',
+    fields: ['Software Engineering'],
+    industry: 'Developer tools',
+    why: 'Mostly backend roles in Go; I have the systems coursework but no shipped Go project.',
+  });
+  await desk.addCompany({
+    name: 'Harborview Data',
+    fit: 'strong',
+    fields: ['Data Analytics'],
+    industry: 'Public-sector analytics',
+  });
 }

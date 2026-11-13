@@ -23,6 +23,7 @@ import { NewContactDialog } from '../components/NewContactDialog';
 import { StartFlag, StatusMark } from '../components/StatusMark';
 import { Timeline } from '../components/Timeline';
 import { relativeDays, shortDate } from '../format';
+import { CompanyCard } from './Companies';
 import { ServerDown } from './Home';
 
 export function ApplicationPage({ id }: { id: string }) {
@@ -161,6 +162,8 @@ export function ApplicationPage({ id }: { id: string }) {
               </div>
             ))}
           </dl>
+
+          <CompanyCard name={app.companyName} />
 
           <AttachedDocuments app={app} />
 

@@ -14,11 +14,13 @@ import {
 import {
   ApplicationPatch,
   CapturePosting,
+  CompanyProfilePatch,
   DocumentKind,
   DocumentPatch,
   FLAGS,
   MAX_DOCUMENT_BYTES,
   NewApplication,
+  NewCompany,
   NewContact,
   NewView,
   ReadScreenshots,
@@ -359,6 +361,23 @@ export function buildServer(base: Offerdesk, opts: ServerOptions = {}): FastifyI
       .header('cache-control', 'private, max-age=31536000, immutable')
       .header('x-content-type-options', 'nosniff')
       .send(Buffer.from(bytes));
+  });
+
+  // ── companies (ADR 0011) ──────────────────────────────────────────────────
+  app.get('/api/companies', async (req) => req.desk.listCompanies());
+
+  app.post('/api/companies', async (req, reply) => {
+    return reply.status(201).send(await req.desk.addCompany(NewCompany.parse(req.body)));
+  });
+
+  app.get('/api/companies/:id', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return req.desk.companyContext(id);
+  });
+
+  app.patch('/api/companies/:id', async (req) => {
+    const { id } = IdParams.parse(req.params);
+    return req.desk.updateCompany(id, CompanyProfilePatch.parse(req.body));
   });
 
   // ── contacts & outreach ───────────────────────────────────────────────────

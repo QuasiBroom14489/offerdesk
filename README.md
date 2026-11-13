@@ -54,6 +54,12 @@ the page and calls `capture_posting`, and the posting lands on Home under
 `dashboard`, `follow_ups`, `deadlines`, `list_applications`, `set_status`, and
 `run_view` / `export_view` for saved tables (*"who haven't I heard back from?"*).
 
+Before applying, *"what should I say to Northwind?"* reads `company_context`:
+why the company fits your experience, what to lead with, the projects to cite
+(with their profile descriptions), and every application and person there.
+`save_company` adds a company to the target list or records new research on it
+(ADR 0011).
+
 No assistant handy? Press `N` and paste (⌘V) or drop screenshots of the posting
 into **Add an application**. Claude fills in the fields, you check them, and it's
 added the same way. It runs on your Claude subscription through the Claude
@@ -114,6 +120,7 @@ pnpm lint        # biome
 - [x] MCP server; capture a posting from the screen, flagged "get started"
 - [x] Capture a posting from pasted screenshots in the dashboard
 - [x] Table builder, saved views, CSV / Excel export
+- [x] Companies: a target list with fit, why it's relevant, and what to pitch
 - [ ] Google Sheets push (with the Google connector)
 - [ ] Documents library and Google Drive connector
 - [ ] Resume studio: bullet bank, Claude tailoring, one-page PDF check

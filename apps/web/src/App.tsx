@@ -9,6 +9,7 @@ import { ApplicationPage } from './pages/Application';
 import { ApplicationsTable } from './pages/ApplicationsTable';
 import { Autofill } from './pages/Autofill';
 import { Board } from './pages/Board';
+import { Companies, CompanyPage } from './pages/Companies';
 import { Documents } from './pages/Documents';
 import { Home } from './pages/Home';
 import { People, Person } from './pages/People';
@@ -18,6 +19,7 @@ const NAV = [
   { path: '/', label: 'Home', key: 'H' },
   { path: '/board', label: 'Board', key: 'B' },
   { path: '/applications', label: 'Applications', key: 'A' },
+  { path: '/companies', label: 'Companies', key: 'C' },
   { path: '/people', label: 'People', key: 'P' },
   { path: '/autofill', label: 'Autofill', key: 'F' },
   { path: '/documents', label: 'Documents', key: 'D' },
@@ -39,6 +41,7 @@ export function App() {
       'g h': () => navigate('/'),
       'g b': () => navigate('/board'),
       'g a': () => navigate('/applications'),
+      'g c': () => navigate('/companies'),
       'g p': () => navigate('/people'),
       'g f': () => navigate('/autofill'),
       'g d': () => navigate('/documents'),
@@ -101,6 +104,8 @@ export function App() {
           <Route path="/board" component={Board} />
           <Route path="/applications" component={() => <ApplicationsTable onNew={openNewApp} />} />
           <Route path="/applications/:id">{(p) => <ApplicationPage id={p.id} />}</Route>
+          <Route path="/companies" component={Companies} />
+          <Route path="/companies/:id">{(p) => <CompanyPage id={p.id} />}</Route>
           <Route path="/people" component={() => <People onNew={openNewContact} />} />
           <Route path="/people/:id">{(p) => <Person id={p.id} />}</Route>
           <Route path="/autofill" component={Autofill} />

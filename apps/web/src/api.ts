@@ -3,6 +3,10 @@ import type {
   Application,
   ApplicationDetail,
   CapturePosting,
+  CompanyContext,
+  CompanyDetail,
+  CompanyProfilePatch,
+  CompanySummary,
   Contact,
   ContactDetail,
   Dashboard,
@@ -11,6 +15,7 @@ import type {
   DocumentPatch,
   Flag,
   NewApplication,
+  NewCompany,
   NewContact,
   NewView,
   PostingImage,
@@ -71,6 +76,32 @@ export const useApplication = (id: string) =>
   useQuery({
     queryKey: ['applications', id],
     queryFn: () => request<ApplicationDetail>('GET', `/api/applications/${id}`),
+  });
+
+export const useCompanies = () =>
+  useQuery({
+    queryKey: ['companies'],
+    queryFn: () => request<CompanySummary[]>('GET', '/api/companies'),
+  });
+
+/** By id or name: the application page asks by name. */
+export const useCompany = (idOrName: string) =>
+  useQuery({
+    queryKey: ['companies', idOrName],
+    queryFn: () => request<CompanyContext>('GET', `/api/companies/${encodeURIComponent(idOrName)}`),
+  });
+
+export const useAddCompany = () =>
+  useMutation({
+    mutationFn: (body: NewCompany) => request<CompanyDetail>('POST', '/api/companies', body),
+    onSuccess: invalidateAll,
+  });
+
+export const useUpdateCompany = () =>
+  useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: CompanyProfilePatch }) =>
+      request<CompanyDetail>('PATCH', `/api/companies/${encodeURIComponent(id)}`, patch),
+    onSuccess: invalidateAll,
   });
 
 export const useContacts = () =>

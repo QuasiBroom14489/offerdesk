@@ -5,6 +5,10 @@ import {
   type ApplicationDetail,
   ApplicationPatch,
   CapturePosting,
+  type CompanyContext,
+  type CompanyDetail,
+  type CompanyProfilePatch,
+  type CompanySummary,
   type Contact,
   type ContactDetail,
   type Dashboard,
@@ -15,6 +19,7 @@ import {
   type Flag,
   type FollowUp,
   NewApplication,
+  type NewCompany,
   NewContact,
   type PipelineStats,
   type PostingDraft,
@@ -26,6 +31,7 @@ import {
   ViewSpec,
   type ViewSpecInput,
 } from '@offerdesk/shared';
+import { Companies } from './companies.js';
 import type { OfferdeskConfig } from './config.js';
 import { type PostingReader, postingReaderFromEnv } from './connectors/anthropic/index.js';
 import { Connections } from './connectors/connections.js';
@@ -139,6 +145,7 @@ interface Snapshot {
  */
 export class Offerdesk {
   readonly profile: ProfessionalProfile;
+  readonly companies: Companies;
   readonly events: EventLog;
   readonly connections: Connections;
   readonly views: Views;
@@ -160,6 +167,7 @@ export class Offerdesk {
     this.now = opts.now ?? Date.now;
     this.profile = new ProfessionalProfile(db, this.workspaceId, this.now);
     this.events = new EventLog(db, this.workspaceId);
+    this.companies = new Companies(db, this.workspaceId, this.now);
     this.connections = new Connections(db, this.workspaceId, this.now);
     this.views = new Views(db, this.workspaceId, this.now);
     this.documents = new Documents(db, this.workspaceId, this.events, opts.files ?? null, this.now);
@@ -220,24 +228,33 @@ export class Offerdesk {
 
   // ── companies ────────────────────────────────────────────────────────────
 
-  /** Find a company by name (case-insensitive) or create it. */
-  private async companyId(name: string, at: number): Promise<string> {
-    const trimmed = name.trim();
-    const existing = await this.db.get<{ id: string }>(
-      'SELECT id FROM companies WHERE workspace_id = ? AND name = ?',
-      this.workspaceId,
-      trimmed,
-    );
-    if (existing) return existing.id;
-    const id = randomUUID();
-    await this.db.run(
-      'INSERT INTO companies (id, workspace_id, name, created_at) VALUES (?, ?, ?, ?)',
-      id,
-      this.workspaceId,
-      trimmed,
-      at,
-    );
-    return id;
+  /** Every known company with what's derived from its applications and people (ADR 0011). */
+  async listCompanies(): Promise<CompanySummary[]> {
+    return this.companies.list(await this.snapshot());
+  }
+
+  /** A company by id or name, with its applications and people. */
+  async getCompany(idOrName: string): Promise<CompanyDetail> {
+    return this.companies.get(idOrName, await this.snapshot());
+  }
+
+  /** Put a company on the target list (creating it if new), with any research given. */
+  async addCompany(input: NewCompany): Promise<CompanyDetail> {
+    return this.getCompany(await this.companies.add(input));
+  }
+
+  async updateCompany(idOrName: string, patch: CompanyProfilePatch): Promise<CompanyDetail> {
+    return this.getCompany(await this.companies.update(idOrName, patch));
+  }
+
+  /** Everything needed to apply to a company in one read: research, history, people, highlights. */
+  async companyContext(idOrName: string): Promise<CompanyContext> {
+    const [facts, profile] = await Promise.all([this.snapshot(), this.profile.state()]);
+    return this.companies.context(idOrName, facts, profile.entries);
+  }
+
+  private companyId(name: string, at: number): Promise<string> {
+    return this.companies.idFor(name, at);
   }
 
   // ── applications ─────────────────────────────────────────────────────────

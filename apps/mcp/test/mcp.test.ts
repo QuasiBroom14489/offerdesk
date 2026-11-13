@@ -37,6 +37,24 @@ describe('MCP server', () => {
     expect(tools.find((t) => t.name === 'dashboard')?.annotations?.readOnlyHint).toBe(true);
   });
 
+  it('saves company research and reads it back as context for applying', async () => {
+    const saved = await call('save_company', {
+      name: 'Acme Analytics',
+      fit: 'strong',
+      fields: ['Data Analytics'],
+      why: 'Their team analyzes event data.',
+      highlights: ['Pipeline project'],
+    });
+    expect(saved.isError).toBeFalsy();
+    expect(saved.content[0]?.text).toContain('Saved Acme Analytics.');
+    expect((await call('list_companies')).content[0]?.text).toMatch(
+      /^Acme Analytics \(Best chance · Data Analytics · not applied\)/,
+    );
+    const ctx = await call('company_context', { company: 'acme analytics' });
+    expect(ctx.content[0]?.text).toContain('Their team analyzes event data.');
+    expect((await call('company_context', { company: 'Nobody' })).isError).toBe(true);
+  });
+
   it('captures a posting from the screen, flagged, and reports duplicates', async () => {
     const args = {
       company: 'Northwind Analytics',

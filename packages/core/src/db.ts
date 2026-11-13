@@ -227,6 +227,20 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (workspace_id, id)
   );
   `,
+  // v10 — company research for a target list (ADR 0011). Mutable notes about a
+  // company, not history, so columns rather than events. Additive only.
+  `
+  ALTER TABLE companies ADD COLUMN target      INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE companies ADD COLUMN fit         TEXT;
+  ALTER TABLE companies ADD COLUMN fields      TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE companies ADD COLUMN industry    TEXT;
+  ALTER TABLE companies ADD COLUMN careers_url TEXT;
+  ALTER TABLE companies ADD COLUMN why         TEXT;
+  ALTER TABLE companies ADD COLUMN angle       TEXT;
+  ALTER TABLE companies ADD COLUMN highlights  TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE companies ADD COLUMN context     TEXT;
+  ALTER TABLE companies ADD COLUMN updated_at  INTEGER;
+  `,
 ];
 
 /** A value SQLite can bind. */

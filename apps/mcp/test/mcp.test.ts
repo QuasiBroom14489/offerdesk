@@ -104,6 +104,38 @@ describe('MCP server', () => {
     expect(dash.content[0]?.text).toMatch(/^1 tracked, 1 submitted/);
   });
 
+  it("edits an application's deadline and link, and clears a field with null", async () => {
+    const a = await desk.addApplication({
+      company: 'Acme',
+      role: 'Intern',
+      location: 'Remote',
+    });
+
+    const res = await call('update_application', {
+      id: a.id,
+      deadline: '2027-01-15',
+      postingUrl: 'https://example.com/jobs/1',
+      location: null,
+    });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0]?.text).toMatch(/^Updated postingUrl, location, deadline on Acme/);
+
+    const after = await desk.getApplication(a.id);
+    expect(after.deadline).toBe('2027-01-15');
+    expect(after.postingUrl).toBe('https://example.com/jobs/1');
+    expect(after.location).toBeNull();
+    expect(after.role).toBe('Intern');
+
+    const nothing = await call('update_application', { id: a.id });
+    expect(nothing.content[0]?.text).toMatch(/^Nothing to change/);
+
+    const bad = await call('update_application', { id: a.id, deadline: 'next week' });
+    expect(bad.isError).toBe(true);
+
+    const missing = await call('update_application', { id: 'nope', deadline: '2027-01-15' });
+    expect(missing.isError).toBe(true);
+  });
+
   it('runs and exports table views by name', async () => {
     await desk.addApplication({ company: 'Acme', role: 'Intern', status: 'applied' });
     await desk.addApplication({ company: 'Beta', role: 'Analyst' });

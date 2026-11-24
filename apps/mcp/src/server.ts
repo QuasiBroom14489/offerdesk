@@ -492,6 +492,33 @@ export function createServer(desk: Offerdesk): McpServer {
   );
 
   server.registerTool(
+    'update_application',
+    {
+      title: 'Edit an application',
+      description:
+        "Change an application's role, posting link, location, season, deadline or source. Only send the fields to change; send null to clear one. Status has its own tool (set_status). Find the id with list_applications first.",
+      inputSchema: {
+        id: z.string(),
+        role: z.string().min(1).optional(),
+        postingUrl: z.string().url().nullable().optional(),
+        location: z.string().nullable().optional(),
+        season: z.string().nullable().optional(),
+        deadline: IsoDate.nullable().optional(),
+        source: z.string().nullable().optional(),
+      },
+      annotations: CHANGE,
+    },
+    safe(async ({ id, ...patch }) => {
+      const changed = Object.keys(patch).filter(
+        (k) => patch[k as keyof typeof patch] !== undefined,
+      );
+      if (changed.length === 0) return reply('Nothing to change: send at least one field.');
+      const a = await desk.updateApplication(id, patch);
+      return reply(`Updated ${changed.join(', ')} on ${line(a)}.`, a);
+    }),
+  );
+
+  server.registerTool(
     'flag',
     {
       title: 'Flag to get started',
